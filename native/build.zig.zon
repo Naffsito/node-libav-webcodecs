@@ -1,0 +1,16 @@
+.{
+    .name = .libavjs_napi,
+    .version = "0.1.0",
+    .fingerprint = 0x18af2315e462ca43,
+    .dependencies = .{
+        .napigen = .{
+            .url = "git+https://github.com/cztomsik/napigen#main",
+            .hash = "122038c9528848729f37fd87d2eefeb2ed7c8d11d24aafd451334d29445f7e87eba7",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
