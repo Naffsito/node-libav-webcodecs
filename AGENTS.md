@@ -2,6 +2,10 @@ this library is for implementing webcodecs in node.js using node-av
 
 format and align markdown tables in your message output
 
+you should write your code in zig inside native directory or typescript inside src.
+
+for validating something works vitest tests are preferred over temporary scripts
+
 ## reading files on github
 
 do `curl gitchamber.com` to see how to search, list and read files on github repos
