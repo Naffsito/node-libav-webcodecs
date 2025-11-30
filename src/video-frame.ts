@@ -1067,7 +1067,7 @@ export function wcFormatToLibAVFormat(libav: LibAVJS.LibAV, wcFormat: VideoPixel
         case "I422P12": format = 0x7F; /* AV_PIX_FMT_YUV422P12 */ break;
         case "I422A": format = 0x4E; /* AV_PIX_FMT_YUVA422P */ break;
         case "I422AP10": format = 0x59; /* AV_PIX_FMT_YUVA422P10 */ break;
-        case "I422AP10": format = 0xBA; /* AV_PIX_FMT_YUVA422P12 */ break;
+        case "I422AP12": format = 0xBA; /* AV_PIX_FMT_YUVA422P12 */ break;
         case "I444": format = libav.AV_PIX_FMT_YUV444P; break;
         case "I444P10": format = 0x44; /* AV_PIX_FMT_YUV444P10 */ break;
         case "I444P12": format = 0x83; /* AV_PIX_FMT_YUV444P12 */ break;
