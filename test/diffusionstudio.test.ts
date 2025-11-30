@@ -3,7 +3,7 @@
  * This test demonstrates cutting and repeating a video in a composition
  */
 
-import type * as core from '@diffusionstudio/core';
+import type * as core from '../src/diffusionstudio.js';
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -69,7 +69,7 @@ describe('DiffusionStudio Integration', () => {
 
   it('should be able to import @diffusionstudio/core', async () => {
     // Dynamic import to ensure polyfills are loaded first
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
     expect(core).toBeDefined();
     expect(core.Composition).toBeDefined();
     expect(core.Layer).toBeDefined();
@@ -77,7 +77,7 @@ describe('DiffusionStudio Integration', () => {
   });
 
   it('should create a basic composition', async () => {
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
 
     const composition = new core.Composition({
       width: 1280,
@@ -91,7 +91,7 @@ describe('DiffusionStudio Integration', () => {
   });
 
   it('should create layers in composition', async () => {
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
 
     const composition = new core.Composition({
       width: 1280,
@@ -107,7 +107,7 @@ describe('DiffusionStudio Integration', () => {
   it('should load video source from file and create clips', async () => {
     // This test is skipped because it requires full WebCodecs support
     // which may not be fully available in the Node.js environment yet
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
 
     // Get the sample video path
     const videoPath = path.resolve(__dirname, '../samples/sample2.webm');
@@ -162,7 +162,7 @@ describe('DiffusionStudio Integration', () => {
   });
 
   it('should export composition to file', async () => {
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
 
     const composition = new core.Composition({
       width: 640,
@@ -197,7 +197,7 @@ describe('DiffusionStudio Integration', () => {
       },
       audio: {
         enabled: false, // Disable audio for this simple test
-        codec: 'opus', // Use opus since our polyfill doesn't support aac
+        // Uses default AAC codec
       },
     });
 
@@ -238,7 +238,7 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
     //
     // Note: Using graphics clips because video decoding requires
     // additional browser APIs that aren't fully available in Node.js
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
 
     // Create composition (1280x720 at 30fps)
     const composition = new core.Composition({
@@ -316,7 +316,7 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
   it('should load video source and set clip range', async () => {
     // This test verifies that video source loading and range setting works
     // The rendering might fail due to missing browser APIs, but the setup should work
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
 
     // Use video-only sample
     const videoPath = path.resolve(__dirname, '../samples/sample2-video-only.webm');

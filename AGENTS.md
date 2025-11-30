@@ -60,4 +60,4 @@ to know how to use diffusionstudio fetch the github repo files with gitchamber: 
 
 this codebase has docs and examples
 
-to debug the diffusionstudio source code you can inspect the file node_modules/@diffusionstudio/core/dist/core.es.js
+to debug or modify the diffusionstudio source code, edit `src/diffusionstudio.js` (copied from core.es.js). Types are re-exported from @diffusionstudio/core in `src/diffusionstudio.d.ts`

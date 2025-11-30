@@ -1073,7 +1073,7 @@ export function wcFormatToLibAVFormat(libav: LibAVJS.LibAV, wcFormat: VideoPixel
         case "I444P12": format = 0x83; /* AV_PIX_FMT_YUV444P12 */ break;
         case "I444A": format = 0x4F; /* AV_PIX_FMT_YUVA444P */ break;
         case "I444AP10": format = 0x5B; /* AV_PIX_FMT_YUVA444P10 */ break;
-        case "I444AP12": format = 0xBC; /* AV_PIX_FMT_YUVA444P10 */ break;
+        case "I444AP12": format = 0xBC; /* AV_PIX_FMT_YUVA444P12 */ break;
         case "NV12": format = libav.AV_PIX_FMT_NV12; break;
         case "RGBA": format = libav.AV_PIX_FMT_RGBA; break;
         case "RGBX": format = 0x77; /* AV_PIX_FMT_RGB0 */ break;

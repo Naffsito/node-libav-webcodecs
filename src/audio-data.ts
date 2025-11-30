@@ -284,7 +284,7 @@ export class AudioData {
         if (typeof options.frameCount === "number") {
             /* 1. If options.frameCount is greater than copyFrameCount, throw a
              * RangeError. */
-            if (options.frameCount >= copyFrameCount)
+            if (options.frameCount > copyFrameCount)
                 throw new RangeError("Frame count out of range");
 
             // 2. Otherwise, assign options.frameCount to copyFrameCount.

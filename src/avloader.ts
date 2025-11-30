@@ -198,10 +198,7 @@ export function decoder(
                 break;
 
             case "opus":
-                if (typeof config.description !== "undefined") {
-                    // ogg bitstream is not supported by the current implementation
-                    return null;
-                }
+                // opus description contains OpusHead header - this is supported
                 outCodec = "libopus";
                 break;
 
@@ -326,6 +323,22 @@ export function encoder(
                 ctx.sample_fmt = 8 /* FLTP */;
                 break;
 
+            case "mp4a":
+                outCodec = "aac";
+                ctx.sample_fmt = 8 /* FLTP */;
+                // AAC encoder uses float planar format
+                // Profile can be specified via aac.format in config
+                if (typeof config.aac === "object" &&
+                    config.aac !== null) {
+                    const aac: any = config.aac;
+                    if (typeof aac.format === "string" &&
+                        aac.format !== "aac") {
+                        // Only "aac" format is supported
+                        return null;
+                    }
+                }
+                break;
+
             // Video
             case "av01":
                 video = true;
@@ -369,7 +382,6 @@ export function encoder(
 
             // Unsupported
             case "mp3":
-            case "mp4a":
             case "ulaw":
             case "alaw":
             case "avc1":

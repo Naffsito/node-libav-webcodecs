@@ -7,6 +7,7 @@ import {
   AudioContext as NodeAudioContext,
   OfflineAudioContext as NodeOfflineAudioContext,
   AudioWorkletNode,
+  AudioBuffer as NodeAudioBuffer,
 } from 'node-web-audio-api';
 
 // Canvas polyfill
@@ -210,7 +211,7 @@ if (!(globalThis as any).createImageBitmap) {
   };
 }
 
-// Use node-web-audio-api for AudioContext and OfflineAudioContext
+// Use node-web-audio-api for AudioContext, OfflineAudioContext, and AudioBuffer
 if (!(globalThis as any).AudioContext) {
   (globalThis as any).AudioContext = NodeAudioContext;
 }
@@ -219,6 +220,9 @@ if (!(globalThis as any).OfflineAudioContext) {
 }
 if (!(globalThis as any).AudioWorkletNode) {
   (globalThis as any).AudioWorkletNode = AudioWorkletNode;
+}
+if (!(globalThis as any).AudioBuffer) {
+  (globalThis as any).AudioBuffer = NodeAudioBuffer;
 }
 
 // requestAnimationFrame polyfill

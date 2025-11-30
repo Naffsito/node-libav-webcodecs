@@ -608,6 +608,11 @@ export interface AudioEncoderConfig {
     flac?: {
         blockSize?: number,
         compressLevel?: number
+    },
+
+    // AAC-specific
+    aac?: {
+        format?: "aac"
     }
 }
 

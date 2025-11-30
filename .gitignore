@@ -1,7 +1,6 @@
 .*.swp
 dist/
 node_modules/
-src/*.js
 test-output
 .DS_Store
 *zig-cache

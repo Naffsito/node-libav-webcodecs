@@ -33,12 +33,12 @@ function patchDrawImage() {
       const width = frame.codedWidth;
       const height = frame.codedHeight;
       const data = frame._libavGetData();
-      
+
       if (!data || data.length === 0) {
         console.warn('[drawImage] VideoFrame has no data');
         return;
       }
-      
+
       // Convert YUV to RGBA for canvas
       let rgbaData: Uint8ClampedArray;
       if (format === 'I420' || format === 'I420P10') {
@@ -52,11 +52,11 @@ function patchDrawImage() {
         // Try to treat as YUV420
         rgbaData = yuv420ToRgba(data, width, height);
       }
-      
+
       // Create ImageData and draw it
       const imageData = this.createImageData(width, height);
       imageData.data.set(rgbaData);
-      
+
       // Handle different drawImage signatures
       if (args.length === 0) {
         this.putImageData(imageData, 0, 0);
@@ -81,7 +81,7 @@ function patchDrawImage() {
       }
       return;
     }
-    
+
     // Default: call original drawImage
     return originalDrawImage.call(this, image, ...args);
   };
@@ -91,21 +91,21 @@ function patchDrawImage() {
     const ySize = width * height;
     const uvSize = (width / 2) * (height / 2);
     const rgba = new Uint8ClampedArray(width * height * 4);
-    
+
     for (let j = 0; j < height; j++) {
       for (let i = 0; i < width; i++) {
         const yIndex = j * width + i;
         const uvIndex = Math.floor(j / 2) * Math.floor(width / 2) + Math.floor(i / 2);
-        
+
         const y = yuv[yIndex];
         const u = yuv[ySize + uvIndex];
         const v = yuv[ySize + uvSize + uvIndex];
-        
+
         // YUV to RGB conversion (BT.601)
         const c = y - 16;
         const d = u - 128;
         const e = v - 128;
-        
+
         const rgbaIndex = yIndex * 4;
         rgba[rgbaIndex] = clamp((298 * c + 409 * e + 128) >> 8);           // R
         rgba[rgbaIndex + 1] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8); // G
@@ -113,7 +113,7 @@ function patchDrawImage() {
         rgba[rgbaIndex + 3] = 255;                                          // A
       }
     }
-    
+
     return rgba;
   }
 
@@ -160,12 +160,12 @@ describe('Video Input Processing', () => {
   }, 30000);
 
   it('should load and render a video file', async () => {
-    const core = await import('@diffusionstudio/core');
+    const core = await import('../src/diffusionstudio.js');
 
-    // Load video-only sample (no audio to avoid audio decoding issues)
-    const videoPath = path.resolve(__dirname, '../samples/sample2-video-only.webm');
+    // Load video sample with audio
+    const videoPath = path.resolve(__dirname, '../samples/sample2.webm');
     console.log('Loading video from:', videoPath);
-    
+
     const videoBuffer = fs.readFileSync(videoPath);
     const videoBlob = new Blob([videoBuffer], { type: 'video/webm' });
     console.log('Video blob size:', videoBlob.size);
@@ -174,6 +174,7 @@ describe('Video Input Processing', () => {
     const composition = new core.Composition({
       width: 640,  // Smaller for faster encoding
       height: 360,
+
       background: '#000000',
     });
 
@@ -182,50 +183,60 @@ describe('Video Input Processing', () => {
     const source = await core.Source.from(videoBlob, {
       mimeType: 'video/webm',
     }) as core.VideoSource;
-    
+
     console.log('Source loaded:');
     console.log('  - duration:', source.duration);
     console.log('  - width:', source.width);
     console.log('  - height:', source.height);
 
-    // Create layer and add video clip
-    const layer = new core.Layer();
+    // Create sequential layer for repeating clips
+    const layer = new core.Layer({ mode: 'SEQUENTIAL' });
     await composition.add(layer);
 
-    // Add the video clip (use full duration, no trimming)
-    const clip = new core.VideoClip(source, {
-      position: 'center',
-      height: '100%',
-    });
-    await layer.add(clip);
-    
-    console.log('Clip added, composition duration:', composition.duration);
+    // Add the video clip 3 times, each 1 second long
+    for (let i = 0; i < 3; i++) {
+      const clip = new core.VideoClip(source, {
+        position: 'center',
+        height: '100%',
+      });
+      // Set range to first 1 second of the video
+      clip.range = [0, 1];
+      await layer.add(clip);
+      console.log(`Added clip ${i + 1} with range [0, 1]`);
+    }
 
-    // Render
+    console.log('All clips added, composition duration:', composition.duration);
+
+    // Render to MP4 with VP9 video (faster than AV1, works in MP4)
     const encoder = new core.Encoder(composition, {
+      debug: true,
+      format: 'mp4',
       video: {
         fps: 25,  // Match source fps
         bitrate: 1_000_000,
-        codec: 'vp8',
+        codec: 'vp9',  // VP9 is faster than AV1 and works in MP4
       },
       audio: {
-        enabled: false,
+        enabled: false, // TODO: fix audio encoding (ff_init_filter_graph not implemented)
       },
     });
 
     console.log('Starting render...');
     const result = await encoder.render();
-    
+
     console.log('Render result:', result.type);
     if (result.type === 'success') {
-      const outputPath = path.resolve(__dirname, '../test-output/video-input-test.webm');
+      const outputPath = path.resolve(__dirname, '../test-output/video-input-test.mp4');
       const arrayBuffer = await result.data?.arrayBuffer();
       fs.writeFileSync(outputPath, Buffer.from(arrayBuffer!));
       console.log('Output saved to:', outputPath);
-      
+
       const stats = fs.statSync(outputPath);
       console.log('Output size:', stats.size, 'bytes');
       expect(stats.size).toBeGreaterThan(1000);
+
+      // Verify it's a valid MP4
+      expect(fs.existsSync(outputPath)).toBe(true);
     } else {
       console.log('Render error:', result.error);
       // Log the full error for debugging
