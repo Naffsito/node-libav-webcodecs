@@ -205,6 +205,17 @@ pub fn AVCodecContext_channels_s(ctx_ptr: usize, val: i32) void {
     ctx.ch_layout.nb_channels = val;
 }
 
+pub fn AVCodecContext_channel_layout(ctx_ptr: usize) u64 {
+    const ctx: *c.AVCodecContext = @ptrFromInt(ctx_ptr);
+    return ctx.ch_layout.u.mask;
+}
+
+pub fn AVCodecContext_channel_layout_s(ctx_ptr: usize, val: u64) void {
+    const ctx: *c.AVCodecContext = @ptrFromInt(ctx_ptr);
+    c.av_channel_layout_uninit(&ctx.ch_layout);
+    _ = c.av_channel_layout_from_mask(&ctx.ch_layout, val);
+}
+
 pub fn AVCodecContext_frame_size(ctx_ptr: usize) i32 {
     const ctx: *c.AVCodecContext = @ptrFromInt(ctx_ptr);
     return ctx.frame_size;
@@ -999,6 +1010,8 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     try js.setNamedProperty(exports, "AVCodecContext_sample_rate_s", try js.createFunction(AVCodecContext_sample_rate_s));
     try js.setNamedProperty(exports, "AVCodecContext_channels", try js.createFunction(AVCodecContext_channels));
     try js.setNamedProperty(exports, "AVCodecContext_channels_s", try js.createFunction(AVCodecContext_channels_s));
+    try js.setNamedProperty(exports, "AVCodecContext_channel_layout", try js.createFunction(AVCodecContext_channel_layout));
+    try js.setNamedProperty(exports, "AVCodecContext_channel_layout_s", try js.createFunction(AVCodecContext_channel_layout_s));
     try js.setNamedProperty(exports, "AVCodecContext_frame_size", try js.createFunction(AVCodecContext_frame_size));
     try js.setNamedProperty(exports, "AVCodecContext_frame_size_s", try js.createFunction(AVCodecContext_frame_size_s));
     try js.setNamedProperty(exports, "AVCodecContext_bit_rate", try js.createFunction(AVCodecContext_bit_rate));

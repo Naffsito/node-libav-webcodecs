@@ -284,6 +284,7 @@ export class NodeAVAdapter {
       if (ctxProps.sample_fmt !== undefined) native.AVCodecContext_sample_fmt_s(ctx, ctxProps.sample_fmt);
       if (ctxProps.sample_rate !== undefined) native.AVCodecContext_sample_rate_s(ctx, ctxProps.sample_rate);
       if (ctxProps.channels !== undefined) native.AVCodecContext_channels_s(ctx, ctxProps.channels);
+      if (ctxProps.channel_layout !== undefined) native.AVCodecContext_channel_layout_s(ctx, BigInt(ctxProps.channel_layout));
       if (ctxProps.bit_rate !== undefined) native.AVCodecContext_bit_rate_s(ctx, BigInt(ctxProps.bit_rate));
       if (ctxProps.pix_fmt !== undefined) native.AVCodecContext_pix_fmt_s(ctx, ctxProps.pix_fmt);
       if (ctxProps.width !== undefined) {

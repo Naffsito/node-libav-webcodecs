@@ -137,6 +137,7 @@ async function codecs(checkEncoders: boolean): Promise<string[]> {
         ["flac", "flac"],
         ["libopus", "opus"],
         ["libvorbis", "vorbis"],
+        ["aac", "mp4a"],
         ["libaom-av1", "av01"],
         ["libvpx-vp9", "vp09"],
         ["libvpx", "vp8"]
