@@ -18,16 +18,48 @@
  */
 
 import type * as LibAVJS from "@libav.js/types";
+import { NodeAVAdapter, getNodeAVAdapter } from "./node-av-adapter";
+
 declare let LibAV: LibAVJS.LibAVWrapper;
+
+// Backend type - either libav.js or node-av
+export type AVBackend = "libavjs" | "node-av";
+let backend: AVBackend = "libavjs";
 
 // Wrapper function to use
 export let LibAVWrapper: LibAVJS.LibAVWrapper | null = null;
 
-// Currently available libav instances
+// Currently available libav instances (for libav.js backend)
 const libavs: LibAVJS.LibAV[] = [];
+
+// Currently available node-av adapter instances
+const nodeAVAdapters: NodeAVAdapter[] = [];
 
 // Options required to create a LibAV instance
 let libavOptions: any = {};
+
+/**
+ * Check if we're running in Node.js
+ */
+export function isNode(): boolean {
+    return typeof process !== 'undefined' && 
+           process.versions != null && 
+           process.versions.node != null;
+}
+
+/**
+ * Set the backend to use (libavjs or node-av)
+ */
+export function setBackend(to: AVBackend) {
+    backend = to;
+}
+
+/**
+ * Get the current backend
+ */
+export function getBackend(): AVBackend {
+    return backend;
+}
 
 /**
  * Supported decoders.
@@ -64,9 +96,18 @@ export function setLibAVOptions(to: any) {
 }
 
 /**
- * Get a libav instance.
+ * Get a libav instance (or node-av adapter).
+ * Returns a LibAV-compatible interface.
  */
 export async function get(): Promise<LibAVJS.LibAV> {
+    if (backend === "node-av") {
+        if (nodeAVAdapters.length) {
+            return nodeAVAdapters.shift()! as unknown as LibAVJS.LibAV;
+        }
+        return getNodeAVAdapter() as unknown as LibAVJS.LibAV;
+    }
+    
+    // libav.js backend
     if (libavs.length)
         return libavs.shift()!;
     return await LibAVWrapper!.LibAV(libavOptions);
@@ -76,6 +117,10 @@ export async function get(): Promise<LibAVJS.LibAV> {
  * Free a libav instance for later reuse.
  */
 export function free(libav: LibAVJS.LibAV) {
+    if (backend === "node-av") {
+        nodeAVAdapters.push(libav as unknown as NodeAVAdapter);
+        return;
+    }
     libavs.push(libav);
 }
 
@@ -84,7 +129,7 @@ export function free(libav: LibAVJS.LibAV) {
  * supported by this polyfill)
  * @param encoders  Check for encoders instead of decoders
  */
-async function codecs(encoders: boolean): Promise<string[]> {
+async function codecs(checkEncoders: boolean): Promise<string[]> {
     const libav = await get();
     const ret: string[] = [];
 
@@ -96,7 +141,7 @@ async function codecs(encoders: boolean): Promise<string[]> {
         ["libvpx-vp9", "vp09"],
         ["libvpx", "vp8"]
     ]) {
-        if (encoders) {
+        if (checkEncoders) {
             if (await libav.avcodec_find_encoder_by_name(avname))
                 ret.push(codec);
         } else {
@@ -111,9 +156,22 @@ async function codecs(encoders: boolean): Promise<string[]> {
 
 /**
  * Load the lists of supported decoders and encoders.
+ * @param options Options for loading
+ *   - backend: "libavjs" | "node-av" - which backend to use (auto-detected if not specified)
  */
-export async function load() {
-    LibAVWrapper = LibAVWrapper || LibAV;
+export async function load(options?: { backend?: AVBackend }) {
+    // Auto-detect backend if not specified
+    if (options?.backend) {
+        backend = options.backend;
+    } else if (isNode() && !LibAVWrapper) {
+        // In Node.js without libav.js, use node-av
+        backend = "node-av";
+    }
+    
+    if (backend === "libavjs") {
+        LibAVWrapper = LibAVWrapper || LibAV;
+    }
+    
     decoders = await codecs(false);
     encoders = await codecs(true);
 }
