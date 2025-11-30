@@ -433,6 +433,9 @@ export function encoder(
  * Handler for advanced options for AV1.
  * @param codecParts  .-separated parts of the codec string.
  * @param ctx  Context to populate with advanced options.
+ * 
+ * AV1 codec string format: av01.<profile>.<levelTier>.<bitDepth>...
+ * where levelTier is like "04M" (2-digit level + tier letter M or H)
  */
 function av1Advanced(codecParts: string[], ctx: LibAVJS.AVCodecContextProps) {
     if (codecParts[1]) {
@@ -444,34 +447,51 @@ function av1Advanced(codecParts: string[], ctx: LibAVJS.AVCodecContextProps) {
     }
 
     if (codecParts[2]) {
-        const level = +codecParts[2];
+        // Parse combined level+tier string (e.g., "04M", "05H")
+        const levelTier = codecParts[2];
+        
+        // Extract the level (first 2 characters) and tier (last character)
+        let levelStr: string;
+        let tier: string | undefined;
+        
+        if (levelTier.length >= 2 && /[MH]$/i.test(levelTier)) {
+            // Has tier suffix (e.g., "04M", "05H")
+            levelStr = levelTier.slice(0, -1);
+            tier = levelTier.slice(-1).toUpperCase();
+        } else {
+            // No tier suffix, just level (e.g., "04")
+            levelStr = levelTier;
+        }
+        
+        const level = +levelStr;
         if (level >= 0 && level <= 23)
             ctx.level = level;
         else
-        throw new TypeError(`Invalid AV1 level: ${codecParts[2]}`);
-    }
+            throw new TypeError(`Invalid AV1 level: ${levelStr}`);
+        
+        // Process tier if present
+        if (tier) {
+            switch (tier) {
+                case "M":
+                    // Default (main tier)
+                    break;
 
-    if (codecParts[3]) {
-        switch (codecParts[3]) {
-            case "M":
-                // Default
-                break;
+                case "H":
+                    if (ctx.level && ctx.level >= 8) {
+                        // Valid but unsupported
+                        return false;
+                    } else {
+                        throw new TypeError("The AV1 high tier is only available for level 4.0 and up");
+                    }
+                    break;
 
-            case "H":
-                if (ctx.level && ctx.level >= 8) {
-                    // Valid but unsupported
-                    return false;
-                } else {
-                    throw new TypeError("The AV1 high tier is only available for level 4.0 and up");
-                }
-                break;
-
-            default:
-                throw new TypeError("Invalid AV1 tier");
+                default:
+                    throw new TypeError("Invalid AV1 tier");
+            }
         }
     }
 
-    if (codecParts[4]) {
+    if (codecParts[3]) {
         const depth = +codecParts[3];
         if (depth === 10 || depth === 12) {
             // Valid but unsupported
@@ -481,9 +501,9 @@ function av1Advanced(codecParts: string[], ctx: LibAVJS.AVCodecContextProps) {
         }
     }
 
-    if (codecParts[5]) {
+    if (codecParts[4]) {
         // Monochrome
-        switch (codecParts[5]) {
+        switch (codecParts[4]) {
             case "0":
                 // Default
                 break;
@@ -497,9 +517,9 @@ function av1Advanced(codecParts: string[], ctx: LibAVJS.AVCodecContextProps) {
         }
     }
 
-    if (codecParts[6]) {
+    if (codecParts[5]) {
         // Subsampling mode
-        switch (codecParts[6]) {
+        switch (codecParts[5]) {
             case "000": // YUV444
                 ctx.pix_fmt = 5 /* YUV444P */;
                 break;
