@@ -265,7 +265,9 @@ export class VideoFrame {
             for (let i = 0; i < numPlanes_; i++) {
                 const sampleWidth = horizontalSubSamplingFactor(format, i);
                 const sampleHeight = verticalSubSamplingFactor(format, i);
-                const stride = ~~(this.codedWidth / sampleWidth);
+                const sampleBytes_ = sampleBytes(format, i);
+                // Stride is in bytes, so multiply by sampleBytes
+                const stride = ~~(this.codedWidth / sampleWidth) * sampleBytes_;
                 layout.push({offset, stride});
                 offset += stride * (~~(this.codedHeight / sampleHeight));
             }
