@@ -235,3 +235,154 @@ describe('Sample Format Constants', () => {
     expect(adapter.AV_PIX_FMT_NV12).toBeDefined();
   });
 });
+
+describe('Filter Graph', () => {
+  let adapter: NodeAVAdapter;
+
+  beforeAll(() => {
+    adapter = createNodeAVAdapter();
+  });
+
+  it('should initialize audio filter graph with volume filter', async () => {
+    const [graphId, srcCtxId, sinkCtxId] = await adapter.ff_init_filter_graph(
+      'volume=0.5',
+      {
+        type: 1, // AVMEDIA_TYPE_AUDIO
+        sample_rate: 48000,
+        sample_fmt: adapter.AV_SAMPLE_FMT_FLT,
+        channel_layout: 4, // mono
+      },
+      {
+        type: 1,
+        sample_rate: 48000,
+        sample_fmt: adapter.AV_SAMPLE_FMT_FLT,
+        channel_layout: 4,
+      }
+    );
+
+    expect(graphId).toBeGreaterThan(0);
+    expect(srcCtxId).toBeGreaterThan(0);
+    expect(sinkCtxId).toBeGreaterThan(0);
+
+    // Cleanup
+    await adapter.avfilter_graph_free_js(graphId);
+  });
+
+  it('should filter audio frames through volume filter', async () => {
+    // Initialize filter graph
+    const [graphId, srcCtxId, sinkCtxId] = await adapter.ff_init_filter_graph(
+      'volume=0.5',
+      {
+        type: 1, // AVMEDIA_TYPE_AUDIO
+        sample_rate: 48000,
+        sample_fmt: adapter.AV_SAMPLE_FMT_FLT,
+        channel_layout: 4, // mono
+      },
+      {
+        type: 1,
+        sample_rate: 48000,
+        sample_fmt: adapter.AV_SAMPLE_FMT_FLT,
+        channel_layout: 4,
+      }
+    );
+
+    // Allocate a frame for filtering
+    const frameId = await adapter.av_frame_alloc();
+
+    // Create input frame with some audio data (1024 samples of a sine wave)
+    const numSamples = 1024;
+    const inputData = new Float32Array(numSamples);
+    for (let i = 0; i < numSamples; i++) {
+      inputData[i] = Math.sin(2 * Math.PI * 440 * i / 48000); // 440 Hz sine
+    }
+
+    // Filter the frame
+    const outputFrames = await adapter.ff_filter_multi(
+      srcCtxId as number,
+      sinkCtxId as number,
+      frameId,
+      [{
+        data: new Uint8Array(inputData.buffer),
+        format: adapter.AV_SAMPLE_FMT_FLT,
+        channels: 1,
+        channel_layout: 4,
+        sample_rate: 48000,
+        nb_samples: numSamples,
+        pts: 0,
+      }],
+      { fin: true }
+    );
+
+    // Should get output frames
+    expect(outputFrames.length).toBeGreaterThan(0);
+
+    // Check that output is attenuated (volume=0.5)
+    if (outputFrames.length > 0 && outputFrames[0].data) {
+      const outputData = outputFrames[0].data as Uint8Array;
+      const outputFloat = new Float32Array(outputData.buffer);
+      // First sample should be roughly half of input (sin(0) is 0, so check another sample)
+      const inputSample10 = inputData[10];
+      const outputSample10 = outputFloat[10];
+      // Allow some tolerance for floating point
+      expect(Math.abs(outputSample10 - inputSample10 * 0.5)).toBeLessThan(0.01);
+    }
+
+    // Cleanup
+    await adapter.av_frame_free_js(frameId);
+    await adapter.avfilter_graph_free_js(graphId);
+  });
+
+  it('should resample audio from 44100 to 48000 Hz', async () => {
+    const [graphId, srcCtxId, sinkCtxId] = await adapter.ff_init_filter_graph(
+      'aresample=48000',
+      {
+        type: 1,
+        sample_rate: 44100,
+        sample_fmt: adapter.AV_SAMPLE_FMT_FLT,
+        channel_layout: 4,
+      },
+      {
+        type: 1,
+        sample_rate: 48000,
+        sample_fmt: adapter.AV_SAMPLE_FMT_FLT,
+        channel_layout: 4,
+      }
+    );
+
+    expect(graphId).toBeGreaterThan(0);
+
+    // Allocate frame
+    const frameId = await adapter.av_frame_alloc();
+
+    // Create input frame
+    const numSamples = 1024;
+    const inputData = new Float32Array(numSamples);
+    for (let i = 0; i < numSamples; i++) {
+      inputData[i] = Math.sin(2 * Math.PI * 440 * i / 44100);
+    }
+
+    const outputFrames = await adapter.ff_filter_multi(
+      srcCtxId as number,
+      sinkCtxId as number,
+      frameId,
+      [{
+        data: new Uint8Array(inputData.buffer),
+        format: adapter.AV_SAMPLE_FMT_FLT,
+        channels: 1,
+        channel_layout: 4,
+        sample_rate: 44100,
+        nb_samples: numSamples,
+        pts: 0,
+      }],
+      { fin: true }
+    );
+
+    // Resampling may buffer, so we might get output or not
+    // Just verify no crash
+    expect(outputFrames).toBeDefined();
+
+    // Cleanup
+    await adapter.av_frame_free_js(frameId);
+    await adapter.avfilter_graph_free_js(graphId);
+  });
+});

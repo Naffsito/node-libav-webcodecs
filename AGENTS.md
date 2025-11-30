@@ -29,6 +29,8 @@ By following this approach, the project will provide a modern, efficient, and ma
 
 before doing any changes to node-av-adapter.ts first see the corresponding function implmentation in https://github.com/Yahweasel/libav.js repository. this will help you have a starting point. that codebase use the preferred values for our use cases. You just need to apply modifications assuming NAPI instead of WASM.
 
+IMPORTANT you MUST copy exactly what https://github.com/Yahweasel/libav.js does. If you see utils functions in their implementation for a function you MUST copy also those! You cannot assume anything. a bug in this code will be very costly!
+
 ## zig guide lines
 
 - always use c allocator so it is the same as libav
@@ -61,3 +63,9 @@ to know how to use diffusionstudio fetch the github repo files with gitchamber: 
 this codebase has docs and examples
 
 to debug or modify the diffusionstudio source code, edit `src/diffusionstudio.js` (copied from core.es.js). Types are re-exported from @diffusionstudio/core in `src/diffusionstudio.d.ts`
+
+## adding a new features in src
+
+if you are implementing a feature in src (basically modifying our webcodecs implementation based on libav) you will then need to first read all typescript files in src, so that you actually understand how it works
+
+you will need to do the same when adding code to .zig files

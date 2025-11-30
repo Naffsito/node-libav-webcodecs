@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     lib.root_module.linkSystemLibrary("avcodec", .{});
     lib.root_module.linkSystemLibrary("avformat", .{});
     lib.root_module.linkSystemLibrary("avutil", .{});
+    lib.root_module.linkSystemLibrary("avfilter", .{});
     lib.root_module.linkSystemLibrary("swscale", .{});
     lib.root_module.linkSystemLibrary("swresample", .{});
     lib.linkLibC();

@@ -217,7 +217,7 @@ describe('Video Input Processing', () => {
         codec: 'vp9',  // VP9 is faster than AV1 and works in MP4
       },
       audio: {
-        enabled: false, // TODO: fix audio encoding (ff_init_filter_graph not implemented)
+        enabled: false, // Audio hanging - needs debugging
       },
     });
 

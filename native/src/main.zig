@@ -13,6 +13,9 @@ const c = @cImport({
     @cInclude("libavutil/opt.h");
     @cInclude("libswscale/swscale.h");
     @cInclude("libswresample/swresample.h");
+    @cInclude("libavfilter/avfilter.h");
+    @cInclude("libavfilter/buffersrc.h");
+    @cInclude("libavfilter/buffersink.h");
 });
 
 // ============================================================================
@@ -948,6 +951,142 @@ pub fn av_free(ptr: usize) void {
     c.av_free(@ptrFromInt(ptr));
 }
 
+/// Duplicate a string using av_strdup
+pub fn av_strdup(str: []const u8) usize {
+    const result = c.av_strdup(@ptrCast(str.ptr));
+    return @intFromPtr(result);
+}
+
+// ============================================================================
+// AVFilter functions
+// ============================================================================
+
+/// Get a filter by name
+pub fn avfilter_get_by_name(name: []const u8) usize {
+    const filter = c.avfilter_get_by_name(@ptrCast(name.ptr));
+    return @intFromPtr(filter);
+}
+
+/// Allocate a filter graph
+pub fn avfilter_graph_alloc() usize {
+    const graph = c.avfilter_graph_alloc();
+    return @intFromPtr(graph);
+}
+
+/// Free a filter graph
+pub fn avfilter_graph_free_js(graph_ptr: usize) void {
+    var graph: ?*c.AVFilterGraph = @ptrFromInt(graph_ptr);
+    c.avfilter_graph_free(&graph);
+}
+
+/// Create a filter and add it to the graph
+/// args is a null-terminated string with filter arguments
+pub fn avfilter_graph_create_filter_js(filter_ptr: usize, name: []const u8, args: []const u8, graph_ptr: usize) usize {
+    const filter: *const c.AVFilter = @ptrFromInt(filter_ptr);
+    const graph: *c.AVFilterGraph = @ptrFromInt(graph_ptr);
+    var ctx: ?*c.AVFilterContext = null;
+
+    const args_ptr: ?[*:0]const u8 = if (args.len == 0) null else @ptrCast(args.ptr);
+
+    const ret = c.avfilter_graph_create_filter(&ctx, filter, @ptrCast(name.ptr), args_ptr, null, graph);
+    if (ret < 0) {
+        return 0;
+    }
+    return @intFromPtr(ctx);
+}
+
+/// Parse a filter graph description
+pub fn avfilter_graph_parse_js(graph_ptr: usize, filters: []const u8, inputs_ptr: usize, outputs_ptr: usize) i32 {
+    const graph: *c.AVFilterGraph = @ptrFromInt(graph_ptr);
+    var inputs: ?*c.AVFilterInOut = @ptrFromInt(inputs_ptr);
+    var outputs: ?*c.AVFilterInOut = @ptrFromInt(outputs_ptr);
+
+    return c.avfilter_graph_parse_ptr(graph, @ptrCast(filters.ptr), &inputs, &outputs, null);
+}
+
+/// Configure a filter graph
+pub fn avfilter_graph_config(graph_ptr: usize) i32 {
+    const graph: *c.AVFilterGraph = @ptrFromInt(graph_ptr);
+    return c.avfilter_graph_config(graph, null);
+}
+
+/// Link two filters
+pub fn avfilter_link(src_ptr: usize, src_pad: u32, dst_ptr: usize, dst_pad: u32) i32 {
+    const src: *c.AVFilterContext = @ptrFromInt(src_ptr);
+    const dst: *c.AVFilterContext = @ptrFromInt(dst_ptr);
+    return c.avfilter_link(src, src_pad, dst, dst_pad);
+}
+
+/// Allocate an AVFilterInOut
+pub fn avfilter_inout_alloc() usize {
+    const inout = c.avfilter_inout_alloc();
+    return @intFromPtr(inout);
+}
+
+/// Free an AVFilterInOut chain
+pub fn avfilter_inout_free_js(inout_ptr: usize) void {
+    var inout: ?*c.AVFilterInOut = @ptrFromInt(inout_ptr);
+    c.avfilter_inout_free(&inout);
+}
+
+/// Set AVFilterInOut name
+pub fn AVFilterInOut_name_s(inout_ptr: usize, name_ptr: usize) void {
+    const inout: *c.AVFilterInOut = @ptrFromInt(inout_ptr);
+    inout.name = @ptrFromInt(name_ptr);
+}
+
+/// Set AVFilterInOut filter_ctx
+pub fn AVFilterInOut_filter_ctx_s(inout_ptr: usize, ctx_ptr: usize) void {
+    const inout: *c.AVFilterInOut = @ptrFromInt(inout_ptr);
+    inout.filter_ctx = @ptrFromInt(ctx_ptr);
+}
+
+/// Set AVFilterInOut pad_idx
+pub fn AVFilterInOut_pad_idx_s(inout_ptr: usize, idx: i32) void {
+    const inout: *c.AVFilterInOut = @ptrFromInt(inout_ptr);
+    inout.pad_idx = idx;
+}
+
+/// Set AVFilterInOut next
+pub fn AVFilterInOut_next_s(inout_ptr: usize, next_ptr: usize) void {
+    const inout: *c.AVFilterInOut = @ptrFromInt(inout_ptr);
+    inout.next = @ptrFromInt(next_ptr);
+}
+
+/// Add a frame to the buffer source (with flags)
+pub fn av_buffersrc_add_frame_flags(ctx_ptr: usize, frame_ptr: usize, flags: i32) i32 {
+    const ctx: *c.AVFilterContext = @ptrFromInt(ctx_ptr);
+    const frame: ?*c.AVFrame = if (frame_ptr == 0) null else @ptrFromInt(frame_ptr);
+    return c.av_buffersrc_add_frame_flags(ctx, frame, flags);
+}
+
+/// Get a frame from the buffer sink
+pub fn av_buffersink_get_frame(ctx_ptr: usize, frame_ptr: usize) i32 {
+    const ctx: *c.AVFilterContext = @ptrFromInt(ctx_ptr);
+    const frame: *c.AVFrame = @ptrFromInt(frame_ptr);
+    return c.av_buffersink_get_frame(ctx, frame);
+}
+
+/// Set the frame size for the buffer sink
+pub fn av_buffersink_set_frame_size(ctx_ptr: usize, frame_size: u32) void {
+    const ctx: *c.AVFilterContext = @ptrFromInt(ctx_ptr);
+    c.av_buffersink_set_frame_size(ctx, frame_size);
+}
+
+/// Get time base numerator from buffer sink
+pub fn av_buffersink_get_time_base_num(ctx_ptr: usize) i32 {
+    const ctx: *c.AVFilterContext = @ptrFromInt(ctx_ptr);
+    const tb = c.av_buffersink_get_time_base(ctx);
+    return tb.num;
+}
+
+/// Get time base denominator from buffer sink
+pub fn av_buffersink_get_time_base_den(ctx_ptr: usize) i32 {
+    const ctx: *c.AVFilterContext = @ptrFromInt(ctx_ptr);
+    const tb = c.av_buffersink_get_time_base(ctx);
+    return tb.den;
+}
+
 // ============================================================================
 // Module initialization
 // ============================================================================
@@ -1136,6 +1275,27 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     // Memory allocation
     try js.setNamedProperty(exports, "av_malloc", try js.createFunction(av_malloc));
     try js.setNamedProperty(exports, "av_free", try js.createFunction(av_free));
+    try js.setNamedProperty(exports, "av_strdup", try js.createFunction(av_strdup));
+
+    // AVFilter functions
+    try js.setNamedProperty(exports, "avfilter_get_by_name", try js.createFunction(avfilter_get_by_name));
+    try js.setNamedProperty(exports, "avfilter_graph_alloc", try js.createFunction(avfilter_graph_alloc));
+    try js.setNamedProperty(exports, "avfilter_graph_free_js", try js.createFunction(avfilter_graph_free_js));
+    try js.setNamedProperty(exports, "avfilter_graph_create_filter_js", try js.createFunction(avfilter_graph_create_filter_js));
+    try js.setNamedProperty(exports, "avfilter_graph_parse_js", try js.createFunction(avfilter_graph_parse_js));
+    try js.setNamedProperty(exports, "avfilter_graph_config", try js.createFunction(avfilter_graph_config));
+    try js.setNamedProperty(exports, "avfilter_link", try js.createFunction(avfilter_link));
+    try js.setNamedProperty(exports, "avfilter_inout_alloc", try js.createFunction(avfilter_inout_alloc));
+    try js.setNamedProperty(exports, "avfilter_inout_free_js", try js.createFunction(avfilter_inout_free_js));
+    try js.setNamedProperty(exports, "AVFilterInOut_name_s", try js.createFunction(AVFilterInOut_name_s));
+    try js.setNamedProperty(exports, "AVFilterInOut_filter_ctx_s", try js.createFunction(AVFilterInOut_filter_ctx_s));
+    try js.setNamedProperty(exports, "AVFilterInOut_pad_idx_s", try js.createFunction(AVFilterInOut_pad_idx_s));
+    try js.setNamedProperty(exports, "AVFilterInOut_next_s", try js.createFunction(AVFilterInOut_next_s));
+    try js.setNamedProperty(exports, "av_buffersrc_add_frame_flags", try js.createFunction(av_buffersrc_add_frame_flags));
+    try js.setNamedProperty(exports, "av_buffersink_get_frame", try js.createFunction(av_buffersink_get_frame));
+    try js.setNamedProperty(exports, "av_buffersink_set_frame_size", try js.createFunction(av_buffersink_set_frame_size));
+    try js.setNamedProperty(exports, "av_buffersink_get_time_base_num", try js.createFunction(av_buffersink_get_time_base_num));
+    try js.setNamedProperty(exports, "av_buffersink_get_time_base_den", try js.createFunction(av_buffersink_get_time_base_den));
 
     return exports;
 }

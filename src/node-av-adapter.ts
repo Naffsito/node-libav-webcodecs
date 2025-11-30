@@ -100,6 +100,33 @@ export interface LibAVJSCodec {
   options?: Record<string, string>;
 }
 
+/**
+ * Filter IO settings for initializing filter graphs
+ */
+export interface FilterIOSettings {
+  type?: number;  // AVMEDIA_TYPE_VIDEO (0) or AVMEDIA_TYPE_AUDIO (1)
+  // Video settings
+  width?: number;
+  height?: number;
+  pix_fmt?: number;
+  frame_rate?: number;
+  time_base?: [number, number];
+  // Audio settings
+  sample_rate?: number;
+  sample_fmt?: number;
+  channel_layout?: number;
+  frame_size?: number;
+}
+
+/**
+ * Filter config options
+ */
+export interface FilterConfig {
+  fin?: boolean;
+  ignoreSinkTimebase?: boolean;
+  copyoutFrame?: string;
+}
+
 // Constants from native module
 const AVERROR_EOF = native.AVERROR_EOF;
 // Note: native.AVERROR_EAGAIN is already negative (-35 on macOS)
@@ -180,9 +207,22 @@ export class NodeAVAdapter {
 
   /**
    * Convert two 32-bit integers to a 64-bit float
+   * Copied exactly from libav.js - handles signed 32-bit values
    */
-  i64tof64(low: number, high: number): number {
-    return low + high * 0x100000000;
+  i64tof64(lo: number, hi: number): number {
+    // Common positive case
+    if (!hi && lo >= 0) return lo;
+
+    // Common negative case
+    if (hi === -1 && lo < 0) return lo;
+
+    /* Lo bit negative numbers are really just the 32nd bit being
+     * set, so we make up for that with an additional 2^32 */
+    return (
+      hi * 0x100000000 +
+      lo +
+      ((lo < 0) ? 0x100000000 : 0)
+    );
   }
 
   /**
@@ -538,7 +578,10 @@ export class NodeAVAdapter {
     // Audio frame
     const channels = native.AVFrame_channels(framePtr);
     const format = native.AVFrame_format(framePtr);
-    const pts = Number(native.AVFrame_pts(framePtr));
+    
+    // Handle 64-bit pts properly using splitI64 for signed values
+    const ptsBigInt = native.AVFrame_pts(framePtr) as bigint;
+    const [ptsLow, ptsHigh] = this.splitI64(ptsBigInt);
 
     const outFrame: LibAVFrame = {
       data: new Uint8Array(0),
@@ -546,8 +589,8 @@ export class NodeAVAdapter {
       channels: channels,
       format: format,
       nb_samples: nb_samples,
-      pts: pts >>> 0,
-      ptshi: Math.floor(pts / 0x100000000) >>> 0,
+      pts: ptsLow,
+      ptshi: ptsHigh,
       time_base_num: tbNum,
       time_base_den: tbDen,
       sample_rate: native.AVFrame_sample_rate(framePtr)
@@ -611,7 +654,10 @@ export class NodeAVAdapter {
     const width = native.AVFrame_width(framePtr);
     const height = native.AVFrame_height(framePtr);
     const format = native.AVFrame_format(framePtr);
-    const pts = Number(native.AVFrame_pts(framePtr));
+    
+    // Handle 64-bit pts properly using splitI64 for signed values
+    const ptsBigInt = native.AVFrame_pts(framePtr) as bigint;
+    const [ptsLow, ptsHigh] = this.splitI64(ptsBigInt);
     
     const desc = native.av_pix_fmt_desc_get(format);
     const log2ch = native.AVPixFmtDescriptor_log2_chroma_h(desc);
@@ -654,8 +700,8 @@ export class NodeAVAdapter {
       format,
       key_frame: native.AVFrame_key_frame(framePtr),
       pict_type: native.AVFrame_pict_type(framePtr),
-      pts: pts >>> 0,
-      ptshi: Math.floor(pts / 0x100000000) >>> 0,
+      pts: ptsLow,
+      ptshi: ptsHigh,
       time_base_num: tbNum,
       time_base_den: tbDen,
       sample_aspect_ratio: [
@@ -863,23 +909,43 @@ export class NodeAVAdapter {
   }
 
   /**
+   * Split a 64-bit BigInt into low and high 32-bit parts (signed)
+   * Matches libav.js format where both parts are signed int32
+   */
+  private splitI64(value: bigint): [number, number] {
+    // Use DataView to get correct signed 32-bit representation
+    // This matches how libav.js/WASM returns values
+    const dv = new DataView(new ArrayBuffer(8));
+    dv.setBigInt64(0, value, true);  // little-endian
+    const lo = dv.getInt32(0, true);  // signed low 32 bits
+    const hi = dv.getInt32(4, true);  // signed high 32 bits
+    return [lo, hi];
+  }
+
+  /**
    * Copy out a packet from native memory
    */
   private copyoutPacket(pktPtr: bigint, tbNum: number, tbDen: number): LibAVPacket {
     const size = native.AVPacket_size(pktPtr);
     const dataPtr = native.AVPacket_data(pktPtr);
-    const pts = Number(native.AVPacket_pts(pktPtr));
-    const dts = Number(native.AVPacket_dts(pktPtr));
-    const duration = Number(native.AVPacket_duration(pktPtr));
+    
+    // Handle 64-bit values properly - native returns BigInt (signed i64)
+    const ptsBigInt = native.AVPacket_pts(pktPtr) as bigint;
+    const dtsBigInt = native.AVPacket_dts(pktPtr) as bigint;
+    const durationBigInt = native.AVPacket_duration(pktPtr) as bigint;
+
+    const [ptsLow, ptsHigh] = this.splitI64(ptsBigInt);
+    const [dtsLow, dtsHigh] = this.splitI64(dtsBigInt);
+    const [durLow, durHigh] = this.splitI64(durationBigInt);
 
     return {
       data: size > 0 ? native.copyout_u8(dataPtr, BigInt(size)) : new Uint8Array(0),
-      pts: pts >>> 0,
-      ptshi: Math.floor(pts / 0x100000000) >>> 0,
-      dts: dts >>> 0,
-      dtshi: Math.floor(dts / 0x100000000) >>> 0,
-      duration: duration >>> 0,
-      durationhi: Math.floor(duration / 0x100000000) >>> 0,
+      pts: ptsLow,
+      ptshi: ptsHigh,
+      dts: dtsLow,
+      dtshi: dtsHigh,
+      duration: durLow,
+      durationhi: durHigh,
       flags: native.AVPacket_flags(pktPtr),
       stream_index: native.AVPacket_stream_index(pktPtr),
       time_base_num: tbNum,
@@ -988,17 +1054,295 @@ export class NodeAVAdapter {
     return 0;
   }
 
-  // Filter graph functions (stubs)
-  async ff_init_filter_graph(_filterName: string, _inputCtx: any, _outputCtx: any): Promise<[number, number, number]> {
-    console.warn('NodeAVAdapter: ff_init_filter_graph not fully implemented');
-    return [1, 1, 1];
+  // Filter graph storage
+  private filterGraphs: Map<number, {
+    graph: bigint;
+    srcCtxs: bigint[];
+    sinkCtxs: bigint[];
+  }> = new Map();
+  private filterCtxs: Map<number, bigint> = new Map();
+  private nextFilterId = 1;
+
+  /**
+   * Filter IO settings interface
+   */
+  private isVideoFilter(settings: FilterIOSettings): boolean {
+    return settings.type === 0; // AVMEDIA_TYPE_VIDEO
   }
 
-  async ff_filter_multi(_buffersrc_ctx: number, _buffersink_ctx: number, _framePtr: number, frames: LibAVFrame[], _fin: boolean = false): Promise<LibAVFrame[]> {
-    return frames;
+  /**
+   * Initialize a filter graph
+   * Returns [filter_graph_id, buffersrc_ctx_id, buffersink_ctx_id]
+   */
+  async ff_init_filter_graph(
+    filtersDescr: string,
+    input: FilterIOSettings | FilterIOSettings[],
+    output: FilterIOSettings | FilterIOSettings[]
+  ): Promise<[number, number | number[], number | number[]]> {
+    const multipleInputs = Array.isArray(input);
+    const multipleOutputs = Array.isArray(output);
+    const inputs = multipleInputs ? input : [input];
+    const outputs = multipleOutputs ? output : [output];
+
+    const srcCtxs: bigint[] = [];
+    const sinkCtxs: bigint[] = [];
+    const srcCtxIds: number[] = [];
+    const sinkCtxIds: number[] = [];
+    let ioOutputs = 0n;
+    let ioInputs = 0n;
+    let filterGraph = 0n;
+
+    try {
+      // Get filter references
+      const buffersrc = native.avfilter_get_by_name('buffer\0');
+      const abuffersrc = native.avfilter_get_by_name('abuffer\0');
+      const format = native.avfilter_get_by_name('format\0');
+      const aformat = native.avfilter_get_by_name('aformat\0');
+      const buffersink = native.avfilter_get_by_name('buffersink\0');
+      const abuffersink = native.avfilter_get_by_name('abuffersink\0');
+
+      // Allocate filter graph
+      filterGraph = native.avfilter_graph_alloc();
+      if (filterGraph === 0n) {
+        throw new Error('Failed to allocate filter graph');
+      }
+
+      // Create inputs (our outputs to the graph - "outputs" in avfilter terminology)
+      for (let ii = 0; ii < inputs.length; ii++) {
+        const inp = inputs[ii];
+        const nm = `in${multipleInputs ? ii : ''}\0`;
+
+        // Allocate AVFilterInOut
+        const nextIoOutputs = native.avfilter_inout_alloc();
+        if (nextIoOutputs === 0n) {
+          throw new Error('Failed to allocate outputs');
+        }
+        native.AVFilterInOut_next_s(nextIoOutputs, ioOutputs);
+        ioOutputs = nextIoOutputs;
+
+        let tmpSrcCtx: bigint;
+        if (this.isVideoFilter(inp)) {
+          // Video filter
+          if (buffersrc === 0n) throw new Error('Failed to load buffer filter');
+          const frameRate = inp.frame_rate ?? 30;
+          const timeBase = inp.time_base ?? [1, frameRate];
+          const args = `time_base=${timeBase[0]}/${timeBase[1]}:frame_rate=${frameRate}:pix_fmt=${inp.pix_fmt ?? 0}:width=${inp.width ?? 640}:height=${inp.height ?? 360}\0`;
+          tmpSrcCtx = native.avfilter_graph_create_filter_js(buffersrc, nm, args, filterGraph);
+        } else {
+          // Audio filter
+          if (abuffersrc === 0n) throw new Error('Failed to load abuffer filter');
+          const sampleRate = inp.sample_rate ?? 48000;
+          const timeBase = inp.time_base ?? [1, sampleRate];
+          const channelLayout = inp.channel_layout ?? 4; // MONO
+          const args = `time_base=${timeBase[0]}/${timeBase[1]}:sample_rate=${sampleRate}:sample_fmt=${inp.sample_fmt ?? 3}:channel_layout=0x${channelLayout.toString(16)}\0`;
+          tmpSrcCtx = native.avfilter_graph_create_filter_js(abuffersrc, nm, args, filterGraph);
+        }
+
+        if (tmpSrcCtx === 0n) {
+          throw new Error('Cannot create buffer source');
+        }
+        srcCtxs.push(tmpSrcCtx);
+
+        // Configure inout
+        const instr = native.av_strdup(nm);
+        if (instr === 0n) throw new Error('Failed to allocate output name');
+        native.AVFilterInOut_name_s(ioOutputs, instr);
+        native.AVFilterInOut_filter_ctx_s(ioOutputs, tmpSrcCtx);
+        native.AVFilterInOut_pad_idx_s(ioOutputs, 0);
+      }
+
+      // Create outputs (our inputs from the graph - "inputs" in avfilter terminology)
+      for (let oi = 0; oi < outputs.length; oi++) {
+        const out = outputs[oi];
+        const nm = `out${multipleOutputs ? oi : ''}\0`;
+
+        // Allocate AVFilterInOut
+        const nextIoInputs = native.avfilter_inout_alloc();
+        if (nextIoInputs === 0n) {
+          throw new Error('Failed to allocate inputs');
+        }
+        native.AVFilterInOut_next_s(nextIoInputs, ioInputs);
+        ioInputs = nextIoInputs;
+
+        let formatCtx: bigint;
+        let tmpSinkCtx: bigint;
+
+        if (this.isVideoFilter(out)) {
+          // Video filter
+          if (format === 0n || buffersink === 0n) throw new Error('Failed to load format or buffersink filter');
+          const formatArgs = `pix_fmts=0x${(out.pix_fmt ?? 0).toString(16)}\0`;
+          formatCtx = native.avfilter_graph_create_filter_js(format, `${nm}format\0`, formatArgs, filterGraph);
+          tmpSinkCtx = native.avfilter_graph_create_filter_js(buffersink, nm, '\0', filterGraph);
+        } else {
+          // Audio filter
+          if (aformat === 0n || abuffersink === 0n) throw new Error('Failed to load aformat or abuffersink filter');
+          const formatArgs = `sample_fmts=${out.sample_fmt ?? 3}:channel_layouts=0x${(out.channel_layout ?? 4).toString(16)}:sample_rates=${out.sample_rate ?? 48000}\0`;
+          formatCtx = native.avfilter_graph_create_filter_js(aformat, `${nm}format\0`, formatArgs, filterGraph);
+          tmpSinkCtx = native.avfilter_graph_create_filter_js(abuffersink, nm, '\0', filterGraph);
+        }
+
+        if (formatCtx === 0n) throw new Error('Cannot create format filter');
+        if (tmpSinkCtx === 0n) throw new Error('Cannot create buffer sink');
+
+        // Link format to sink
+        native.avfilter_link(formatCtx, 0, tmpSinkCtx, 0);
+        sinkCtxs.push(tmpSinkCtx);
+
+        // Configure inout
+        const outstr = native.av_strdup(nm);
+        if (outstr === 0n) throw new Error('Failed to allocate input name');
+        native.AVFilterInOut_name_s(ioInputs, outstr);
+        native.AVFilterInOut_filter_ctx_s(ioInputs, formatCtx);
+        native.AVFilterInOut_pad_idx_s(ioInputs, 0);
+      }
+
+      // Parse filter graph
+      const parseRet = native.avfilter_graph_parse_js(filterGraph, filtersDescr + '\0', ioInputs, ioOutputs);
+      if (parseRet < 0) {
+        throw new Error(`Failed to initialize filters: ${native.ff_error(parseRet)}`);
+      }
+      ioInputs = 0n;
+      ioOutputs = 0n;
+
+      // Set frame sizes for output sinks
+      for (let oi = 0; oi < outputs.length; oi++) {
+        const out = outputs[oi];
+        if (out.frame_size) {
+          native.av_buffersink_set_frame_size(sinkCtxs[oi], out.frame_size);
+        }
+      }
+
+      // Configure graph
+      const configRet = native.avfilter_graph_config(filterGraph);
+      if (configRet < 0) {
+        throw new Error(`Failed to configure filter graph: ${native.ff_error(configRet)}`);
+      }
+
+      // Store and return IDs
+      const graphId = this.nextFilterId++;
+      this.filterGraphs.set(graphId, { graph: filterGraph, srcCtxs, sinkCtxs });
+
+      // Store filter contexts for later use
+      for (const ctx of srcCtxs) {
+        const ctxId = this.nextFilterId++;
+        this.filterCtxs.set(ctxId, ctx);
+        srcCtxIds.push(ctxId);
+      }
+      for (const ctx of sinkCtxs) {
+        const ctxId = this.nextFilterId++;
+        this.filterCtxs.set(ctxId, ctx);
+        sinkCtxIds.push(ctxId);
+      }
+
+      return [
+        graphId,
+        multipleInputs ? srcCtxIds : srcCtxIds[0],
+        multipleOutputs ? sinkCtxIds : sinkCtxIds[0]
+      ];
+
+    } catch (ex) {
+      // Clean up on error
+      if (ioOutputs !== 0n) native.avfilter_inout_free_js(ioOutputs);
+      if (ioInputs !== 0n) native.avfilter_inout_free_js(ioInputs);
+      if (filterGraph !== 0n) native.avfilter_graph_free_js(filterGraph);
+      throw ex;
+    }
   }
 
-  async avfilter_graph_free_js(_filterGraph: number): Promise<void> {}
+  /**
+   * Filter frames through a filter graph
+   */
+  async ff_filter_multi(
+    buffersrcCtxId: number | number[],
+    buffersinkCtxId: number,
+    frameId: number,
+    inFrames: LibAVFrame[] | LibAVFrame[][],
+    config: boolean | FilterConfig | (boolean | FilterConfig)[] = false
+  ): Promise<LibAVFrame[]> {
+    const outFrames: LibAVFrame[] = [];
+    let tbNum = -1;
+    let tbDen = -1;
+
+    // Normalize to arrays
+    const srcIds = Array.isArray(buffersrcCtxId) ? buffersrcCtxId : [buffersrcCtxId];
+    const frameArrays = (Array.isArray(inFrames[0]) ? inFrames : [inFrames]) as LibAVFrame[][];
+    const configs = Array.isArray(config) ? config : srcIds.map(() => config);
+
+    // Normalize config objects
+    const normalizedConfigs = configs.map(c => {
+      if (c === true) return { fin: true };
+      if (c === false) return {};
+      return c;
+    });
+
+    // Get sink context
+    const sinkCtx = this.filterCtxs.get(buffersinkCtxId);
+    if (!sinkCtx) throw new Error(`Buffer sink context not found: ${buffersinkCtxId}`);
+
+    // Get frame pointer
+    const framePtr = this.getFramePtr(frameId);
+    if (!framePtr) throw new Error(`Frame not found: ${frameId}`);
+
+    // Find max frame count
+    const maxFrames = Math.max(...frameArrays.map(arr => arr.length));
+
+    // Process frames in order
+    for (let fi = 0; fi <= maxFrames; fi++) {
+      for (let ti = 0; ti < srcIds.length; ti++) {
+        const srcCtx = this.filterCtxs.get(srcIds[ti]);
+        if (!srcCtx) continue;
+
+        const inFrame = frameArrays[ti]?.[fi];
+        const cfg = normalizedConfigs[ti];
+
+        if (inFrame) {
+          // Copy frame to native memory and add to filter
+          this.copyinFrame(framePtr, inFrame, 0n);
+          const ret = native.av_buffersrc_add_frame_flags(srcCtx, framePtr, 8); // AV_BUFFERSRC_FLAG_KEEP_REF
+          if (ret < 0) {
+            throw new Error(`Error feeding filter graph: ${native.ff_error(ret)}`);
+          }
+          native.av_frame_unref(framePtr);
+        } else if (cfg.fin && fi === maxFrames) {
+          // Flush this source
+          native.av_buffersrc_add_frame_flags(srcCtx, 0n, 0);
+        }
+
+        // Receive all available frames from sink
+        while (true) {
+          const ret = native.av_buffersink_get_frame(sinkCtx, framePtr);
+          if (ret === AVERROR_EAGAIN || ret === AVERROR_EOF) {
+            break;
+          }
+          if (ret < 0) {
+            throw new Error(`Error receiving from filter: ${native.ff_error(ret)}`);
+          }
+
+          // Get time base from sink
+          if (tbNum < 0) {
+            tbNum = native.av_buffersink_get_time_base_num(sinkCtx);
+            tbDen = native.av_buffersink_get_time_base_den(sinkCtx);
+          }
+
+          // Copy out frame
+          const outFrame = this.copyoutFrame(framePtr, tbNum, tbDen);
+          outFrames.push(outFrame);
+          native.av_frame_unref(framePtr);
+        }
+      }
+    }
+
+    return outFrames;
+  }
+
+  async avfilter_graph_free_js(graphId: number): Promise<void> {
+    const graphInfo = this.filterGraphs.get(graphId);
+    if (graphInfo) {
+      native.avfilter_graph_free_js(graphInfo.graph);
+      this.filterGraphs.delete(graphId);
+      // Note: filter contexts are freed with the graph
+    }
+  }
 
   // Frame management functions
   async av_frame_alloc(): Promise<number> {

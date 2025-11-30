@@ -140,7 +140,8 @@ async function codecs(checkEncoders: boolean): Promise<string[]> {
         ["aac", "mp4a"],
         ["libaom-av1", "av01"],
         ["libvpx-vp9", "vp09"],
-        ["libvpx", "vp8"]
+        ["libvpx", "vp8"],
+        ["libx264", "avc1"]
     ]) {
         if (checkEncoders) {
             if (await libav.avcodec_find_encoder_by_name(avname))
@@ -223,13 +224,17 @@ export function decoder(
                 outCodec = "libvpx";
                 break;
 
+            // H.264/AVC
+            case "avc1":
+            case "avc3":
+                outCodec = "h264";
+                break;
+
             // Unsupported
             case "mp3":
             case "mp4a":
             case "ulaw":
             case "alaw":
-            case "avc1":
-            case "avc3":
             case "hev1":
             case "hvc1":
                 return null;
