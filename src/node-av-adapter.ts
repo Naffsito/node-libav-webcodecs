@@ -274,6 +274,10 @@ export class NodeAVAdapter {
       throw new Error('Could not allocate codec context');
     }
 
+    // Track if this is a video encoder (has width/height set)
+    let isVideoEncoder = false;
+    let hasFramerate = false;
+
     // Apply context properties
     if (config?.ctx) {
       const ctxProps = config.ctx;
@@ -282,16 +286,31 @@ export class NodeAVAdapter {
       if (ctxProps.channels !== undefined) native.AVCodecContext_channels_s(ctx, ctxProps.channels);
       if (ctxProps.bit_rate !== undefined) native.AVCodecContext_bit_rate_s(ctx, BigInt(ctxProps.bit_rate));
       if (ctxProps.pix_fmt !== undefined) native.AVCodecContext_pix_fmt_s(ctx, ctxProps.pix_fmt);
-      if (ctxProps.width !== undefined) native.AVCodecContext_width_s(ctx, ctxProps.width);
-      if (ctxProps.height !== undefined) native.AVCodecContext_height_s(ctx, ctxProps.height);
+      if (ctxProps.width !== undefined) {
+        native.AVCodecContext_width_s(ctx, ctxProps.width);
+        isVideoEncoder = true;
+      }
+      if (ctxProps.height !== undefined) {
+        native.AVCodecContext_height_s(ctx, ctxProps.height);
+        isVideoEncoder = true;
+      }
       if (ctxProps.framerate_num !== undefined && ctxProps.framerate_den !== undefined) {
         native.AVCodecContext_framerate_s(ctx, ctxProps.framerate_num, ctxProps.framerate_den);
         // Set time_base as inverse of framerate for video encoders
         native.AVCodecContext_time_base_s(ctx, ctxProps.framerate_den, ctxProps.framerate_num);
+        hasFramerate = true;
       }
     }
 
-    // Set default time_base if not already set
+    // For video encoders, ensure framerate and time_base are set
+    // libvpx and other video encoders require this
+    if (isVideoEncoder && !hasFramerate) {
+      // Default to 30fps if no framerate specified
+      native.AVCodecContext_framerate_s(ctx, 30, 1);
+      native.AVCodecContext_time_base_s(ctx, 1, 30);
+    }
+
+    // Set default time_base if not already set (for audio encoders)
     const tbDen = native.AVCodecContext_time_base_den(ctx);
     if (tbDen === 0) {
       native.AVCodecContext_time_base_s(ctx, 1, 1000);
