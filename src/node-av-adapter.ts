@@ -876,6 +876,40 @@ export class NodeAVAdapter {
   }
 
   /**
+   * Get the stride (linesize) for a plane based on pixel format
+   */
+  private getPlaneStride(format: number, width: number, planeIndex: number): number {
+    // Common pixel formats
+    const AV_PIX_FMT_YUV420P = 0;
+    const AV_PIX_FMT_YUV422P = 4;
+    const AV_PIX_FMT_YUV444P = 5;
+    const AV_PIX_FMT_NV12 = 23;
+    const AV_PIX_FMT_RGBA = 26;
+    const AV_PIX_FMT_BGRA = 28;
+    
+    switch (format) {
+      case AV_PIX_FMT_YUV420P:
+        // Y plane has full width, U and V are half width
+        return planeIndex === 0 ? width : Math.ceil(width / 2);
+      case AV_PIX_FMT_YUV422P:
+        // Y plane has full width, U and V are half width
+        return planeIndex === 0 ? width : Math.ceil(width / 2);
+      case AV_PIX_FMT_YUV444P:
+        // All planes have full width
+        return width;
+      case AV_PIX_FMT_NV12:
+        // Y plane and interleaved UV plane both have full width
+        return width;
+      case AV_PIX_FMT_RGBA:
+      case AV_PIX_FMT_BGRA:
+        return width * 4;
+      default:
+        // Default: assume planar YUV with chroma subsampling
+        return planeIndex === 0 ? width : Math.ceil(width / 2);
+    }
+  }
+
+  /**
    * Convert node-av Frame to libav.js-compatible format
    */
   private frameToLibAV(frame: Frame, codecCtx: CodecContext): LibAVFrame {
@@ -909,22 +943,55 @@ export class NodeAVAdapter {
         ptshi: ptsHi,
       };
     } else {
-      // Video frame
-      let frameData: Uint8Array[];
-      if (data) {
-        frameData = data.map(d => new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
-      } else {
-        frameData = [new Uint8Array(0)];
-      }
-
+      // Video frame - need to provide data as single buffer with layout info
+      const width = frame.width;
+      const height = frame.height;
+      const format = frame.format;
+      
       const pts = Number(frame.pts);
       const [ptsLow, ptsHi] = this.f64toi64(pts);
+      
+      if (!data || data.length === 0) {
+        return {
+          data: new Uint8Array(0),
+          format,
+          width,
+          height,
+          pts: ptsLow,
+          ptshi: ptsHi,
+          key_frame: frame.keyFrame ? 1 : 0,
+        };
+      }
+
+      // Calculate layout based on pixel format
+      // For planar formats like YUV420P, we need to concatenate planes and provide layout
+      const layout: Array<{offset: number, stride: number}> = [];
+      let totalSize = 0;
+      
+      // Get linesize (stride) from frame if available, otherwise calculate
+      const linesizes = frame.linesize || [];
+      
+      for (let i = 0; i < data.length; i++) {
+        const planeData = data[i];
+        const stride = linesizes[i] || this.getPlaneStride(format, width, i);
+        layout.push({ offset: totalSize, stride });
+        totalSize += planeData.byteLength;
+      }
+      
+      // Concatenate all plane data into single buffer
+      const combinedData = new Uint8Array(totalSize);
+      let offset = 0;
+      for (const planeData of data) {
+        combinedData.set(new Uint8Array(planeData.buffer, planeData.byteOffset, planeData.byteLength), offset);
+        offset += planeData.byteLength;
+      }
 
       return {
-        data: frameData,
-        format: frame.format,
-        width: frame.width,
-        height: frame.height,
+        data: combinedData,
+        layout,
+        format,
+        width,
+        height,
         pts: ptsLow,
         ptshi: ptsHi,
         key_frame: frame.keyFrame ? 1 : 0,
