@@ -1,52 +1,35 @@
 /*
  * Node-AV Adapter
- * Provides a libav.js-compatible interface using node-av native bindings.
+ * Provides a libav.js-compatible interface using native NAPI bindings.
  * This allows the WebCodecs polyfill to work in Node.js environments.
  */
 
-import {
-  Codec,
-  CodecContext,
-  Frame,
-  Packet,
-  FFmpegError,
-  Rational,
-} from 'node-av/lib';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-import {
-  AV_CODEC_ID_FLAC,
-  AV_CODEC_ID_OPUS,
-  AV_CODEC_ID_VORBIS,
-  AV_CODEC_ID_VP8,
-  AV_CODEC_ID_VP9,
-  AV_CODEC_ID_AV1,
-  AV_SAMPLE_FMT_U8,
-  AV_SAMPLE_FMT_S16,
-  AV_SAMPLE_FMT_S32,
-  AV_SAMPLE_FMT_FLT,
-  AV_SAMPLE_FMT_U8P,
-  AV_SAMPLE_FMT_S16P,
-  AV_SAMPLE_FMT_S32P,
-  AV_SAMPLE_FMT_FLTP,
-  AV_PIX_FMT_YUV420P,
-  AV_PIX_FMT_YUV422P,
-  AV_PIX_FMT_YUV444P,
-  AV_PIX_FMT_RGBA,
-  AV_PIX_FMT_BGRA,
-  AV_PIX_FMT_NV12,
-  AVMEDIA_TYPE_AUDIO,
-  AVMEDIA_TYPE_VIDEO,
-  AVERROR_EOF,
-  AVERROR_EAGAIN,
-} from 'node-av/constants';
+// Load the native module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const require_ = createRequire(import.meta.url);
 
-import type { AVCodecID, AVSampleFormat, AVPixelFormat, AVPictureType, FFEncoderCodec, FFDecoderCodec } from 'node-av/constants';
+// Try to load the native module from various locations
+let native: any;
+try {
+  native = require_(path.join(__dirname, '..', 'native', 'zig-out', 'lib', 'libavjs.node'));
+} catch (e) {
+  try {
+    native = require_(path.join(__dirname, '..', 'native', 'zig-out', 'lib', 'libavjs.node'));
+  } catch (e2) {
+    throw new Error('Failed to load native libavjs module. Make sure to build it first with: cd native && zig build');
+  }
+}
 
 /**
  * Frame data structure compatible with libav.js
  */
 export interface LibAVFrame {
-  data: Uint8Array | Uint8Array[];
+  data: Uint8Array | Uint8Array[] | Int16Array | Int16Array[] | Float32Array | Float32Array[];
   layout?: { offset: number; stride: number }[];
   format?: number;
   width?: number;
@@ -57,6 +40,8 @@ export interface LibAVFrame {
   nb_samples?: number;
   pts?: number;
   ptshi?: number;
+  time_base_num?: number;
+  time_base_den?: number;
   crop?: {
     left: number;
     right: number;
@@ -80,6 +65,9 @@ export interface LibAVPacket {
   duration?: number;
   durationhi?: number;
   flags?: number;
+  stream_index?: number;
+  time_base_num?: number;
+  time_base_den?: number;
 }
 
 /**
@@ -112,8 +100,33 @@ export interface LibAVJSCodec {
   options?: Record<string, string>;
 }
 
+// Constants from native module
+const AVERROR_EOF = native.AVERROR_EOF;
+// Note: native.AVERROR_EAGAIN is already negative (-35 on macOS)
+// But the libav.js API expects EAGAIN to be positive and users negate it
+const AVERROR_EAGAIN = native.AVERROR_EAGAIN;
+const EAGAIN_POSITIVE = Math.abs(native.AVERROR_EAGAIN);
+
+// Sample formats
+const AV_SAMPLE_FMT_U8 = native.AV_SAMPLE_FMT_U8;
+const AV_SAMPLE_FMT_S16 = native.AV_SAMPLE_FMT_S16;
+const AV_SAMPLE_FMT_S32 = native.AV_SAMPLE_FMT_S32;
+const AV_SAMPLE_FMT_FLT = native.AV_SAMPLE_FMT_FLT;
+const AV_SAMPLE_FMT_U8P = native.AV_SAMPLE_FMT_U8P;
+const AV_SAMPLE_FMT_S16P = native.AV_SAMPLE_FMT_S16P;
+const AV_SAMPLE_FMT_S32P = native.AV_SAMPLE_FMT_S32P;
+const AV_SAMPLE_FMT_FLTP = native.AV_SAMPLE_FMT_FLTP;
+
+// Pixel formats
+const AV_PIX_FMT_YUV420P = native.AV_PIX_FMT_YUV420P;
+const AV_PIX_FMT_YUV422P = native.AV_PIX_FMT_YUV422P;
+const AV_PIX_FMT_YUV444P = native.AV_PIX_FMT_YUV444P;
+const AV_PIX_FMT_RGBA = native.AV_PIX_FMT_RGBA;
+const AV_PIX_FMT_BGRA = native.AV_PIX_FMT_BGRA;
+const AV_PIX_FMT_NV12 = native.AV_PIX_FMT_NV12;
+
 /**
- * NodeAVAdapter - Provides libav.js-compatible interface using node-av
+ * NodeAVAdapter - Provides libav.js-compatible interface using native NAPI bindings
  */
 export class NodeAVAdapter {
   // Sample format constants (matching libav.js)
@@ -135,16 +148,26 @@ export class NodeAVAdapter {
   readonly AV_PIX_FMT_NV12 = AV_PIX_FMT_NV12;
 
   // Error codes
-  readonly EAGAIN = -AVERROR_EAGAIN;
+  readonly EAGAIN = EAGAIN_POSITIVE;  // Positive value; user negates it for comparison
 
   // Internal storage for codec contexts
   private contexts: Map<number, {
-    codecCtx: CodecContext;
-    codec: Codec;
-    frame: Frame;
-    packet: Packet;
+    codec: bigint;
+    ctx: bigint;
+    frame: bigint;
+    pkt: bigint;
+    frameSize: number;
+    isEncoder: boolean;
   }> = new Map();
   private nextContextId = 1;
+
+  // Frame and packet storage (for standalone frame/packet allocation)
+  private frames: Map<number, bigint> = new Map();
+  private packets: Map<number, bigint> = new Map();
+
+  // Software scaler contexts
+  private swsContexts: Map<number, bigint> = new Map();
+  private nextSwsId = 1;
 
   /**
    * Convert a 64-bit float to two 32-bit integers (low, high)
@@ -166,16 +189,16 @@ export class NodeAVAdapter {
    * Find an encoder by name
    */
   async avcodec_find_encoder_by_name(name: string): Promise<number> {
-    const codec = Codec.findEncoderByName(name as FFEncoderCodec);
-    return codec ? 1 : 0;
+    const codec = native.avcodec_find_encoder_by_name(name + '\0');
+    return codec === 0n ? 0 : 1;
   }
 
   /**
    * Find a decoder by name
    */
   async avcodec_find_decoder_by_name(name: string): Promise<number> {
-    const codec = Codec.findDecoderByName(name as FFDecoderCodec);
-    return codec ? 1 : 0;
+    const codec = native.avcodec_find_decoder_by_name(name + '\0');
+    return codec === 0n ? 0 : 1;
   }
 
   /**
@@ -185,42 +208,51 @@ export class NodeAVAdapter {
     codecName: string,
     codecpara?: any
   ): Promise<[number, number, number, number]> {
-    const codec = Codec.findDecoderByName(codecName as FFDecoderCodec);
-    if (!codec) {
+    const codec = native.avcodec_find_decoder_by_name(codecName + '\0');
+    if (codec === 0n) {
       throw new Error(`Decoder not found: ${codecName}`);
     }
 
-    const codecCtx = new CodecContext();
-    codecCtx.allocContext3(codec);
+    const ctx = native.avcodec_alloc_context3(codec);
+    if (ctx === 0n) {
+      throw new Error('Could not allocate codec context');
+    }
 
     // Apply codec parameters if provided
     if (codecpara) {
       if (codecpara.channels !== undefined) {
-        codecCtx.channelLayout = { nbChannels: codecpara.channels, order: 0, mask: BigInt((1 << codecpara.channels) - 1) };
+        native.AVCodecContext_channels_s(ctx, codecpara.channels);
       }
       if (codecpara.sample_rate !== undefined) {
-        codecCtx.sampleRate = codecpara.sample_rate;
+        native.AVCodecContext_sample_rate_s(ctx, codecpara.sample_rate);
       }
-      if (codecpara.extradata && codecpara.extradata_size > 0) {
-        codecCtx.extraData = Buffer.from(codecpara.extradata);
+      if (codecpara.sample_fmt !== undefined) {
+        native.AVCodecContext_sample_fmt_s(ctx, codecpara.sample_fmt);
       }
     }
 
     // Open the codec
-    const ret = await codecCtx.open2(codec, null);
+    const ret = native.avcodec_open2(ctx, codec);
     if (ret < 0) {
-      codecCtx.freeContext();
-      throw new FFmpegError(ret);
+      native.avcodec_free_context_js(ctx);
+      throw new Error(`Could not open codec: ${native.ff_error(ret)}`);
     }
 
-    const frame = new Frame();
-    frame.alloc();
+    const frame = native.av_frame_alloc();
+    if (frame === 0n) {
+      native.avcodec_free_context_js(ctx);
+      throw new Error('Could not allocate frame');
+    }
 
-    const packet = new Packet();
-    packet.alloc();
+    const pkt = native.av_packet_alloc();
+    if (pkt === 0n) {
+      native.av_frame_free_js(frame);
+      native.avcodec_free_context_js(ctx);
+      throw new Error('Could not allocate packet');
+    }
 
     const contextId = this.nextContextId++;
-    this.contexts.set(contextId, { codecCtx, codec, frame, packet });
+    this.contexts.set(contextId, { codec, ctx, frame, pkt, frameSize: 0, isEncoder: false });
 
     return [1, contextId, contextId, contextId];
   }
@@ -232,66 +264,62 @@ export class NodeAVAdapter {
     codecName: string,
     config?: LibAVJSCodec
   ): Promise<[number, number, number, number, number]> {
-    const codec = Codec.findEncoderByName(codecName as FFEncoderCodec);
-    if (!codec) {
+    const codec = native.avcodec_find_encoder_by_name(codecName + '\0');
+    if (codec === 0n) {
       throw new Error(`Encoder not found: ${codecName}`);
     }
 
-    const codecCtx = new CodecContext();
-    codecCtx.allocContext3(codec);
+    const ctx = native.avcodec_alloc_context3(codec);
+    if (ctx === 0n) {
+      throw new Error('Could not allocate codec context');
+    }
 
     // Apply context properties
     if (config?.ctx) {
-      const ctx = config.ctx;
-      if (ctx.sample_fmt !== undefined) codecCtx.sampleFormat = ctx.sample_fmt as AVSampleFormat;
-      if (ctx.sample_rate !== undefined) codecCtx.sampleRate = ctx.sample_rate;
-      if (ctx.channels !== undefined) {
-        codecCtx.channelLayout = { 
-          nbChannels: ctx.channels, 
-          order: 0, 
-          mask: BigInt(ctx.channel_layout || ((1 << ctx.channels) - 1))
-        };
-      }
-      if (ctx.channel_layout !== undefined && ctx.channels === undefined) {
-        const nbChannels = Math.log2(ctx.channel_layout + 1);
-        codecCtx.channelLayout = { nbChannels, order: 0, mask: BigInt(ctx.channel_layout) };
-      }
-      if (ctx.bit_rate !== undefined) codecCtx.bitRate = BigInt(ctx.bit_rate);
-      if (ctx.pix_fmt !== undefined) codecCtx.pixelFormat = ctx.pix_fmt as AVPixelFormat;
-      if (ctx.width !== undefined) codecCtx.width = ctx.width;
-      if (ctx.height !== undefined) codecCtx.height = ctx.height;
-      if (ctx.framerate_num !== undefined && ctx.framerate_den !== undefined) {
-        codecCtx.framerate = new Rational(ctx.framerate_num, ctx.framerate_den);
+      const ctxProps = config.ctx;
+      if (ctxProps.sample_fmt !== undefined) native.AVCodecContext_sample_fmt_s(ctx, ctxProps.sample_fmt);
+      if (ctxProps.sample_rate !== undefined) native.AVCodecContext_sample_rate_s(ctx, ctxProps.sample_rate);
+      if (ctxProps.channels !== undefined) native.AVCodecContext_channels_s(ctx, ctxProps.channels);
+      if (ctxProps.bit_rate !== undefined) native.AVCodecContext_bit_rate_s(ctx, BigInt(ctxProps.bit_rate));
+      if (ctxProps.pix_fmt !== undefined) native.AVCodecContext_pix_fmt_s(ctx, ctxProps.pix_fmt);
+      if (ctxProps.width !== undefined) native.AVCodecContext_width_s(ctx, ctxProps.width);
+      if (ctxProps.height !== undefined) native.AVCodecContext_height_s(ctx, ctxProps.height);
+      if (ctxProps.framerate_num !== undefined && ctxProps.framerate_den !== undefined) {
+        native.AVCodecContext_framerate_s(ctx, ctxProps.framerate_num, ctxProps.framerate_den);
         // Set time_base as inverse of framerate for video encoders
-        codecCtx.timeBase = new Rational(ctx.framerate_den, ctx.framerate_num);
-      } else if (ctx.width !== undefined) {
-        // Default time_base for video if framerate not specified
-        codecCtx.timeBase = new Rational(1, 1000);
+        native.AVCodecContext_time_base_s(ctx, ctxProps.framerate_den, ctxProps.framerate_num);
       }
     }
 
-    // For video codecs, ensure time_base is set
-    if (codec.type === AVMEDIA_TYPE_VIDEO && !codecCtx.timeBase.den) {
-      codecCtx.timeBase = new Rational(1, 1000);
+    // Set default time_base if not already set
+    const tbDen = native.AVCodecContext_time_base_den(ctx);
+    if (tbDen === 0) {
+      native.AVCodecContext_time_base_s(ctx, 1, 1000);
     }
 
-    // Open the codec
-    const ret = await codecCtx.open2(codec, null);
+    // Open codec
+    const ret = native.avcodec_open2(ctx, codec);
     if (ret < 0) {
-      codecCtx.freeContext();
-      throw new FFmpegError(ret);
+      native.avcodec_free_context_js(ctx);
+      throw new Error(`Could not open codec: ${native.ff_error(ret)}`);
     }
 
-    const frame = new Frame();
-    frame.alloc();
+    const frame = native.av_frame_alloc();
+    if (frame === 0n) {
+      native.avcodec_free_context_js(ctx);
+      throw new Error('Could not allocate frame');
+    }
 
-    const packet = new Packet();
-    packet.alloc();
+    const pkt = native.av_packet_alloc();
+    if (pkt === 0n) {
+      native.av_frame_free_js(frame);
+      native.avcodec_free_context_js(ctx);
+      throw new Error('Could not allocate packet');
+    }
 
+    const frameSize = native.AVCodecContext_frame_size(ctx) || 1024;
     const contextId = this.nextContextId++;
-    this.contexts.set(contextId, { codecCtx, codec, frame, packet });
-
-    const frameSize = codecCtx.frameSize || 1024;
+    this.contexts.set(contextId, { codec, ctx, frame, pkt, frameSize, isEncoder: true });
 
     return [1, contextId, contextId, contextId, frameSize];
   }
@@ -300,11 +328,11 @@ export class NodeAVAdapter {
    * Free a decoder
    */
   async ff_free_decoder(contextId: number, _pktId: number, _frameId: number): Promise<void> {
-    const ctx = this.contexts.get(contextId);
-    if (ctx) {
-      ctx.frame.free();
-      ctx.packet.free();
-      ctx.codecCtx.freeContext();
+    const context = this.contexts.get(contextId);
+    if (context) {
+      native.av_frame_free_js(context.frame);
+      native.av_packet_free_js(context.pkt);
+      native.avcodec_free_context_js(context.ctx);
       this.contexts.delete(contextId);
     }
   }
@@ -326,68 +354,76 @@ export class NodeAVAdapter {
     packets: LibAVPacket[],
     flush = false
   ): Promise<LibAVFrame[]> {
-    const ctx = this.contexts.get(contextId);
-    if (!ctx) {
+    const context = this.contexts.get(contextId);
+    if (!context) {
       throw new Error(`Context not found: ${contextId}`);
     }
 
-    const { codecCtx, frame, packet } = ctx;
+    const { ctx, frame, pkt } = context;
     const decodedFrames: LibAVFrame[] = [];
+    const tbNum = native.AVCodecContext_time_base_num(ctx);
+    const tbDen = native.AVCodecContext_time_base_den(ctx);
 
     // Send packets to decoder
-    for (const pkt of packets) {
-      // Copy packet data - use Buffer.from to create a proper buffer
-      packet.unref();
-      packet.data = Buffer.from(pkt.data);
-      
-      if (pkt.pts !== undefined) {
-        packet.pts = BigInt(this.i64tof64(pkt.pts, pkt.ptshi || 0));
-      }
-      if (pkt.dts !== undefined) {
-        packet.dts = BigInt(this.i64tof64(pkt.dts, pkt.dtshi || 0));
-      }
-      if (pkt.duration !== undefined) {
-        packet.duration = BigInt(this.i64tof64(pkt.duration, pkt.durationhi || 0));
+    for (const packet of packets) {
+      // Set up packet
+      native.av_packet_unref(pkt);
+      if (packet.data && packet.data.length > 0) {
+        const ret = native.av_new_packet(pkt, packet.data.length);
+        if (ret < 0) {
+          throw new Error(`Failed to allocate packet buffer: ${native.ff_error(ret)}`);
+        }
+        const dataPtr = native.AVPacket_data(pkt);
+        native.copyin_u8(dataPtr, packet.data);
       }
 
-      const sendRet = await codecCtx.sendPacket(packet);
-      if (sendRet < 0 && sendRet !== AVERROR_EOF) {
-        // EAGAIN is ok, means we need to receive frames first
-        if (sendRet !== AVERROR_EAGAIN) {
-          throw new FFmpegError(sendRet);
-        }
+      if (packet.pts !== undefined) {
+        const pts = this.i64tof64(packet.pts, packet.ptshi || 0);
+        native.AVPacket_pts_s(pkt, BigInt(pts));
       }
+      if (packet.dts !== undefined) {
+        const dts = this.i64tof64(packet.dts, packet.dtshi || 0);
+        native.AVPacket_dts_s(pkt, BigInt(dts));
+      }
+
+      const sendRet = native.avcodec_send_packet(ctx, pkt);
+      if (sendRet < 0 && sendRet !== AVERROR_EOF && sendRet !== AVERROR_EAGAIN) {
+        throw new Error(`Error sending packet: ${native.ff_error(sendRet)}`);
+      }
+      native.av_packet_unref(pkt);
 
       // Receive all available frames
       while (true) {
-        const recvRet = await codecCtx.receiveFrame(frame);
+        const recvRet = native.avcodec_receive_frame(ctx, frame);
         if (recvRet === AVERROR_EAGAIN || recvRet === AVERROR_EOF) {
           break;
         }
         if (recvRet < 0) {
-          throw new FFmpegError(recvRet);
+          throw new Error(`Error receiving frame: ${native.ff_error(recvRet)}`);
         }
 
-        decodedFrames.push(this.frameToLibAV(frame, codecCtx));
-        frame.unref();
+        const outFrame = this.copyoutFrame(frame, tbNum, tbDen);
+        decodedFrames.push(outFrame);
+        native.av_frame_unref(frame);
       }
     }
 
     // Flush decoder if requested
     if (flush) {
-      const flushRet = await codecCtx.sendPacket(null);
+      const flushRet = native.avcodec_send_packet(ctx, 0n);
       if (flushRet >= 0 || flushRet === AVERROR_EOF) {
         while (true) {
-          const recvRet = await codecCtx.receiveFrame(frame);
+          const recvRet = native.avcodec_receive_frame(ctx, frame);
           if (recvRet === AVERROR_EAGAIN || recvRet === AVERROR_EOF) {
             break;
           }
           if (recvRet < 0) {
-            throw new FFmpegError(recvRet);
+            throw new Error(`Error receiving frame: ${native.ff_error(recvRet)}`);
           }
 
-          decodedFrames.push(this.frameToLibAV(frame, codecCtx));
-          frame.unref();
+          const outFrame = this.copyoutFrame(frame, tbNum, tbDen);
+          decodedFrames.push(outFrame);
+          native.av_frame_unref(frame);
         }
       }
     }
@@ -405,55 +441,62 @@ export class NodeAVAdapter {
     frames: LibAVFrame[],
     flush = false
   ): Promise<LibAVPacket[]> {
-    const ctx = this.contexts.get(contextId);
-    if (!ctx) {
+    const context = this.contexts.get(contextId);
+    if (!context) {
       throw new Error(`Context not found: ${contextId}`);
     }
 
-    const { codecCtx, frame, packet } = ctx;
+    const { ctx, frame, pkt } = context;
     const encodedPackets: LibAVPacket[] = [];
+    const tbNum = native.AVCodecContext_time_base_num(ctx);
+    const tbDen = native.AVCodecContext_time_base_den(ctx);
 
     // Send frames to encoder
-    for (const frm of frames) {
-      this.libAVToFrame(frm, frame, codecCtx);
+    for (const inFrame of frames) {
+      this.copyinFrame(frame, inFrame, ctx);
 
-      const sendRet = await codecCtx.sendFrame(frame);
-      if (sendRet < 0 && sendRet !== AVERROR_EOF) {
-        if (sendRet !== AVERROR_EAGAIN) {
-          throw new FFmpegError(sendRet);
-        }
+      const sendRet = native.avcodec_send_frame(ctx, frame);
+      if (sendRet < 0 && sendRet !== AVERROR_EOF && sendRet !== AVERROR_EAGAIN) {
+        throw new Error(`Error sending frame: ${native.ff_error(sendRet)}`);
       }
+      native.av_frame_unref(frame);
 
       // Receive all available packets
       while (true) {
-        const recvRet = await codecCtx.receivePacket(packet);
+        const recvRet = native.avcodec_receive_packet(ctx, pkt);
         if (recvRet === AVERROR_EAGAIN || recvRet === AVERROR_EOF) {
           break;
         }
         if (recvRet < 0) {
-          throw new FFmpegError(recvRet);
+          throw new Error(`Error receiving packet: ${native.ff_error(recvRet)}`);
         }
 
-        encodedPackets.push(this.packetToLibAV(packet));
-        packet.unref();
+        const outPkt = this.copyoutPacket(pkt, tbNum, tbDen);
+        if (outPkt.data.length > 0) {
+          encodedPackets.push(outPkt);
+        }
+        native.av_packet_unref(pkt);
       }
     }
 
     // Flush encoder if requested
     if (flush) {
-      const flushRet = await codecCtx.sendFrame(null);
+      const flushRet = native.avcodec_send_frame(ctx, 0n);
       if (flushRet >= 0 || flushRet === AVERROR_EOF) {
         while (true) {
-          const recvRet = await codecCtx.receivePacket(packet);
+          const recvRet = native.avcodec_receive_packet(ctx, pkt);
           if (recvRet === AVERROR_EAGAIN || recvRet === AVERROR_EOF) {
             break;
           }
           if (recvRet < 0) {
-            throw new FFmpegError(recvRet);
+            throw new Error(`Error receiving packet: ${native.ff_error(recvRet)}`);
           }
 
-          encodedPackets.push(this.packetToLibAV(packet));
-          packet.unref();
+          const outPkt = this.copyoutPacket(pkt, tbNum, tbDen);
+          if (outPkt.data.length > 0) {
+            encodedPackets.push(outPkt);
+          }
+          native.av_packet_unref(pkt);
         }
       }
     }
@@ -462,640 +505,609 @@ export class NodeAVAdapter {
   }
 
   /**
+   * Copy out a frame from native memory
+   */
+  private copyoutFrame(framePtr: bigint, tbNum: number, tbDen: number): LibAVFrame {
+    const nb_samples = native.AVFrame_nb_samples(framePtr);
+    
+    if (nb_samples === 0) {
+      // Video frame
+      return this.copyoutVideoFrame(framePtr, tbNum, tbDen);
+    }
+
+    // Audio frame
+    const channels = native.AVFrame_channels(framePtr);
+    const format = native.AVFrame_format(framePtr);
+    const pts = Number(native.AVFrame_pts(framePtr));
+
+    const outFrame: LibAVFrame = {
+      data: new Uint8Array(0),
+      channel_layout: native.AVFrame_channel_layout(framePtr),
+      channels: channels,
+      format: format,
+      nb_samples: nb_samples,
+      pts: pts >>> 0,
+      ptshi: Math.floor(pts / 0x100000000) >>> 0,
+      time_base_num: tbNum,
+      time_base_den: tbDen,
+      sample_rate: native.AVFrame_sample_rate(framePtr)
+    };
+
+    // Copy data based on format
+    if (format >= 5 /* U8P */) {
+      // Planar format
+      const data: Uint8Array[] = [];
+      for (let ci = 0; ci < channels; ci++) {
+        const inData = native.AVFrame_data_a(framePtr, BigInt(ci));
+        let outData: Uint8Array;
+        switch (format) {
+          case 5: // U8P
+            outData = native.copyout_u8(inData, BigInt(nb_samples));
+            break;
+          case 6: // S16P
+            outData = new Uint8Array(native.copyout_s16(inData, BigInt(nb_samples)).buffer);
+            break;
+          case 7: // S32P
+            outData = new Uint8Array(native.copyout_s32(inData, BigInt(nb_samples)).buffer);
+            break;
+          case 8: // FLTP
+            outData = new Uint8Array(native.copyout_f32(inData, BigInt(nb_samples)).buffer);
+            break;
+          default:
+            outData = new Uint8Array(0);
+        }
+        data.push(outData);
+      }
+      outFrame.data = data;
+    } else {
+      // Interleaved format
+      const ct = channels * nb_samples;
+      const inData = native.AVFrame_data_a(framePtr, BigInt(0));
+      switch (format) {
+        case 0: // U8
+          outFrame.data = native.copyout_u8(inData, BigInt(ct));
+          break;
+        case 1: // S16
+          outFrame.data = new Uint8Array(native.copyout_s16(inData, BigInt(ct)).buffer);
+          break;
+        case 2: // S32
+          outFrame.data = new Uint8Array(native.copyout_s32(inData, BigInt(ct)).buffer);
+          break;
+        case 3: // FLT
+          outFrame.data = new Uint8Array(native.copyout_f32(inData, BigInt(ct)).buffer);
+          break;
+        default:
+          outFrame.data = new Uint8Array(0);
+      }
+    }
+
+    return outFrame;
+  }
+
+  /**
+   * Copy out a video frame from native memory
+   */
+  private copyoutVideoFrame(framePtr: bigint, tbNum: number, tbDen: number): LibAVFrame {
+    const width = native.AVFrame_width(framePtr);
+    const height = native.AVFrame_height(framePtr);
+    const format = native.AVFrame_format(framePtr);
+    const pts = Number(native.AVFrame_pts(framePtr));
+    
+    const desc = native.av_pix_fmt_desc_get(format);
+    const log2ch = native.AVPixFmtDescriptor_log2_chroma_h(desc);
+    
+    const layout: { offset: number; stride: number }[] = [];
+
+    // Copy each plane separately since they may not be contiguous
+    const planeData: Uint8Array[] = [];
+    let totalSize = 0;
+    
+    for (let p = 0; p < 8; p++) {
+      const linesize = native.AVFrame_linesize_a(framePtr, BigInt(p));
+      if (!linesize) break;
+      const plane = native.AVFrame_data_a(framePtr, BigInt(p));
+      let h = height;
+      if (p === 1 || p === 2) h >>= log2ch;
+      const planeSize = linesize * h;
+      const data = native.copyout_u8(plane, BigInt(planeSize));
+      planeData.push(data);
+      layout.push({
+        offset: totalSize,
+        stride: linesize
+      });
+      totalSize += planeSize;
+    }
+
+    // Combine all planes into single buffer
+    const data = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const plane of planeData) {
+      data.set(plane, offset);
+      offset += plane.length;
+    }
+
+    return {
+      data,
+      layout,
+      width,
+      height,
+      format,
+      key_frame: native.AVFrame_key_frame(framePtr),
+      pict_type: native.AVFrame_pict_type(framePtr),
+      pts: pts >>> 0,
+      ptshi: Math.floor(pts / 0x100000000) >>> 0,
+      time_base_num: tbNum,
+      time_base_den: tbDen,
+      sample_aspect_ratio: [
+        native.AVFrame_sample_aspect_ratio_num(framePtr),
+        native.AVFrame_sample_aspect_ratio_den(framePtr)
+      ]
+    };
+  }
+
+  /**
+   * Copy a frame into native memory
+   */
+  private copyinFrame(framePtr: bigint, inFrame: LibAVFrame, ctx: bigint): void {
+    native.av_frame_unref(framePtr);
+
+    if (inFrame.width) {
+      // Video frame
+      this.copyinVideoFrame(framePtr, inFrame);
+      return;
+    }
+
+    // Audio frame
+    const format = inFrame.format ?? native.AVCodecContext_sample_fmt(ctx);
+    let channels = inFrame.channels;
+    if (!channels && inFrame.channel_layout) {
+      channels = 0;
+      let cl = inFrame.channel_layout;
+      while (cl) {
+        if (cl & 1) channels++;
+        cl >>>= 1;
+      }
+    }
+    const channelCount = channels || native.AVCodecContext_channels(ctx) || 2;
+
+    // Set frame properties
+    if (inFrame.channel_layout !== undefined) native.AVFrame_channel_layout_s(framePtr, BigInt(inFrame.channel_layout));
+    if (channelCount) native.AVFrame_channels_s(framePtr, channelCount);
+    native.AVFrame_format_s(framePtr, format);
+    if (inFrame.pts !== undefined) {
+      const pts = (inFrame.ptshi || 0) * 0x100000000 + (inFrame.pts || 0);
+      native.AVFrame_pts_s(framePtr, BigInt(pts));
+    }
+    if (inFrame.sample_rate !== undefined) native.AVFrame_sample_rate_s(framePtr, inFrame.sample_rate);
+
+    // Calculate nb_samples - prefer explicit value from inFrame if provided
+    let nb_samples: number;
+    if (inFrame.nb_samples !== undefined) {
+      nb_samples = inFrame.nb_samples;
+    } else if (format >= 5 /* U8P */ && Array.isArray(inFrame.data)) {
+      // Planar format - length of first channel array is nb_samples
+      nb_samples = (inFrame.data[0] as any).length;
+    } else {
+      // Interleaved format - need to account for bytes per sample
+      const dataLen = (inFrame.data as any).length;
+      let bytesPerSample = 1;
+      switch (format) {
+        case 1: bytesPerSample = 2; break; // S16
+        case 2: bytesPerSample = 4; break; // S32
+        case 3: bytesPerSample = 4; break; // FLT
+      }
+      // Check if data is a TypedArray (not Uint8Array wrapping another type)
+      if (inFrame.data instanceof Int16Array) {
+        nb_samples = dataLen / channelCount;
+      } else if (inFrame.data instanceof Int32Array || inFrame.data instanceof Float32Array) {
+        nb_samples = dataLen / channelCount;
+      } else {
+        // Uint8Array - calculate from bytes
+        nb_samples = dataLen / (channelCount * bytesPerSample);
+      }
+    }
+
+    native.AVFrame_nb_samples_s(framePtr, nb_samples);
+
+    // Allocate buffer
+    let ret = native.av_frame_make_writable(framePtr);
+    if (ret < 0) {
+      ret = native.av_frame_get_buffer(framePtr, 0);
+      if (ret < 0) {
+        throw new Error(`Failed to allocate frame buffers: ${native.ff_error(ret)}`);
+      }
+    }
+
+    // Copy data
+    if (format >= 5 /* U8P */ && Array.isArray(inFrame.data)) {
+      // Planar format
+      for (let ci = 0; ci < channelCount; ci++) {
+        const dataPtr = native.AVFrame_data_a(framePtr, BigInt(ci));
+        const channelData = inFrame.data[ci] as unknown;
+        switch (format) {
+          case 5: // U8P
+            native.copyin_u8(dataPtr, channelData as Uint8Array);
+            break;
+          case 6: // S16P
+            native.copyin_s16(dataPtr, channelData as Int16Array);
+            break;
+          case 7: // S32P
+            native.copyin_s32(dataPtr, channelData as Int32Array);
+            break;
+          case 8: // FLTP
+            native.copyin_f32(dataPtr, channelData as Float32Array);
+            break;
+        }
+      }
+    } else {
+      // Interleaved format
+      const dataPtr = native.AVFrame_data_a(framePtr, BigInt(0));
+      const data = inFrame.data as unknown;
+      switch (format) {
+        case 0: // U8
+          native.copyin_u8(dataPtr, data as Uint8Array);
+          break;
+        case 1: // S16
+          native.copyin_s16(dataPtr, data as Int16Array);
+          break;
+        case 2: // S32
+          native.copyin_s32(dataPtr, data as Int32Array);
+          break;
+        case 3: // FLT
+          native.copyin_f32(dataPtr, data as Float32Array);
+          break;
+      }
+    }
+  }
+
+  /**
+   * Copy a video frame into native memory
+   */
+  private copyinVideoFrame(framePtr: bigint, inFrame: LibAVFrame): void {
+    // Set frame properties
+    native.AVFrame_format_s(framePtr, inFrame.format!);
+    native.AVFrame_width_s(framePtr, inFrame.width!);
+    native.AVFrame_height_s(framePtr, inFrame.height!);
+    if (inFrame.key_frame !== undefined) native.AVFrame_key_frame_s(framePtr, inFrame.key_frame);
+    if (inFrame.pict_type !== undefined) native.AVFrame_pict_type_s(framePtr, inFrame.pict_type);
+    if (inFrame.pts !== undefined) {
+      const pts = (inFrame.ptshi || 0) * 0x100000000 + (inFrame.pts || 0);
+      native.AVFrame_pts_s(framePtr, BigInt(pts));
+    }
+    if (inFrame.sample_aspect_ratio) {
+      native.AVFrame_sample_aspect_ratio_s(framePtr, inFrame.sample_aspect_ratio[0], inFrame.sample_aspect_ratio[1]);
+    }
+
+    const format = inFrame.format!;
+    const width = inFrame.width!;
+    const height = inFrame.height!;
+
+    const desc = native.av_pix_fmt_desc_get(format);
+    const log2cw = native.AVPixFmtDescriptor_log2_chroma_w(desc);
+    const log2ch = native.AVPixFmtDescriptor_log2_chroma_h(desc);
+
+    // Allocate buffer
+    let ret = native.av_frame_make_writable(framePtr);
+    if (ret < 0) {
+      ret = native.av_frame_get_buffer(framePtr, 0);
+      if (ret < 0) {
+        throw new Error(`Failed to allocate frame buffers: ${native.ff_error(ret)}`);
+      }
+    }
+
+    // If layout is not provided, assume packed
+    let layout = inFrame.layout;
+    if (!layout) {
+      layout = [];
+      const flags = Number(native.AVPixFmtDescriptor_flags(desc));
+      const nbComponents = Number(native.AVPixFmtDescriptor_nb_components(desc));
+      let bpp = 1;
+      if (!(flags & 0x10)) bpp *= nbComponents;
+
+      let off = 0;
+      for (let p = 0; p < 8; p++) {
+        const linesize = native.AVFrame_linesize_a(framePtr, BigInt(p));
+        if (!linesize) break;
+        let w = width;
+        let h = height;
+        if (p === 1 || p === 2) {
+          w >>= log2cw;
+          h >>= log2ch;
+        }
+        layout.push({
+          offset: off,
+          stride: w * bpp
+        });
+        off += w * h * bpp;
+      }
+    }
+
+    // Copy data plane by plane
+    const frameData = inFrame.data instanceof Uint8Array 
+      ? inFrame.data 
+      : new Uint8Array(inFrame.data as ArrayBuffer);
+    for (let p = 0; p < layout.length; p++) {
+      const lplane = layout[p];
+      const linesize = native.AVFrame_linesize_a(framePtr, BigInt(p));
+      const dataPtr = native.AVFrame_data_a(framePtr, BigInt(p));
+      let h = height;
+      if (p === 1 || p === 2) h >>= log2ch;
+      
+      const stride = Math.min(lplane.stride, linesize);
+      for (let y = 0; y < h; y++) {
+        const srcOff = lplane.offset + y * lplane.stride;
+        const dstOff = dataPtr + BigInt(y * linesize);
+        native.copyin_u8(dstOff, frameData.subarray(srcOff, srcOff + stride));
+      }
+    }
+  }
+
+  /**
+   * Copy out a packet from native memory
+   */
+  private copyoutPacket(pktPtr: bigint, tbNum: number, tbDen: number): LibAVPacket {
+    const size = native.AVPacket_size(pktPtr);
+    const dataPtr = native.AVPacket_data(pktPtr);
+    const pts = Number(native.AVPacket_pts(pktPtr));
+    const dts = Number(native.AVPacket_dts(pktPtr));
+    const duration = Number(native.AVPacket_duration(pktPtr));
+
+    return {
+      data: size > 0 ? native.copyout_u8(dataPtr, BigInt(size)) : new Uint8Array(0),
+      pts: pts >>> 0,
+      ptshi: Math.floor(pts / 0x100000000) >>> 0,
+      dts: dts >>> 0,
+      dtshi: Math.floor(dts / 0x100000000) >>> 0,
+      duration: duration >>> 0,
+      durationhi: Math.floor(duration / 0x100000000) >>> 0,
+      flags: native.AVPacket_flags(pktPtr),
+      stream_index: native.AVPacket_stream_index(pktPtr),
+      time_base_num: tbNum,
+      time_base_den: tbDen
+    };
+  }
+
+  /**
    * Set codec context time base
    */
   async AVCodecContext_time_base_s(contextId: number, num: number, den: number): Promise<void> {
-    const ctx = this.contexts.get(contextId);
-    if (ctx) {
-      ctx.codecCtx.timeBase = new Rational(num, den);
+    const context = this.contexts.get(contextId);
+    if (context) {
+      native.AVCodecContext_time_base_s(context.ctx, num, den);
     }
   }
 
   /**
-   * Copy frame to buffer
+   * Copy frame to buffer (for standalone frame API or context frame)
    */
-  async ff_copyin_frame(contextId: number, frameData: LibAVFrame): Promise<void> {
-    const ctx = this.contexts.get(contextId);
-    if (!ctx) {
-      throw new Error(`Context not found: ${contextId}`);
+  async ff_copyin_frame(frameId: number, frameData: LibAVFrame): Promise<void> {
+    // First check if this is a context ID (frame was created via ff_init_encoder)
+    const context = this.contexts.get(frameId);
+    if (context) {
+      this.copyinFrame(context.frame, frameData, context.ctx);
+      return;
     }
-    this.libAVToFrame(frameData, ctx.frame, ctx.codecCtx);
-  }
-
-  /**
-   * Copy buffer to Uint8Array
-   */
-  async copyout_u8(ptr: number, size: number): Promise<Uint8Array> {
-    // In node-av, this would be handled differently
-    // This is a placeholder for the libav.js memory interface
-    return new Uint8Array(size);
-  }
-
-  /**
-   * Copy Uint8Array to buffer
-   */
-  async copyin_u8(ptr: number, data: Uint8Array): Promise<void> {
-    // Placeholder for libav.js memory interface
+    
+    // Then check standalone frames (created via av_frame_alloc)
+    const framePtr = this.frames.get(frameId);
+    if (framePtr) {
+      this.copyinFrame(framePtr, frameData, 0n);
+      return;
+    }
+    
+    throw new Error(`Frame not found: ${frameId}`);
   }
 
   /**
    * Allocate memory
    */
   async calloc(count: number, size: number): Promise<number> {
-    // Placeholder - node-av handles memory differently
-    return 0;
+    const ptr = native.av_malloc(BigInt(count * size));
+    return Number(ptr);
   }
 
   /**
    * Free memory
    */
   async free(ptr: number): Promise<void> {
-    // Placeholder
+    native.av_free(BigInt(ptr));
+  }
+
+  /**
+   * Copy buffer to Uint8Array
+   */
+  async copyout_u8(ptr: number, size: number): Promise<Uint8Array> {
+    return native.copyout_u8(BigInt(ptr), BigInt(size));
+  }
+
+  /**
+   * Copy Uint8Array to buffer
+   */
+  async copyin_u8(ptr: number, data: Uint8Array): Promise<void> {
+    native.copyin_u8(BigInt(ptr), data);
   }
 
   /**
    * Allocate codec parameters
    */
   async avcodec_parameters_alloc(): Promise<number> {
-    // Return a dummy pointer - node-av uses objects directly
-    return 1;
+    return 1; // Dummy pointer
   }
 
   /**
    * Free codec parameters
    */
-  async avcodec_parameters_free_js(ptr: number): Promise<void> {
-    // No-op for node-av
+  async avcodec_parameters_free_js(_ptr: number): Promise<void> {
+    // No-op
   }
 
-  /**
-   * Set codec parameters properties
-   */
-  async AVCodecParameters_channels_s(ptr: number, channels: number): Promise<void> {}
-  async AVCodecParameters_sample_rate_s(ptr: number, sampleRate: number): Promise<void> {}
-  async AVCodecParameters_codec_type_s(ptr: number, type: number): Promise<void> {}
-  async AVCodecParameters_extradata_s(ptr: number, extradata: number): Promise<void> {}
-  async AVCodecParameters_extradata_size_s(ptr: number, size: number): Promise<void> {}
+  // Codec parameter setters (stubs for compatibility)
+  async AVCodecParameters_channels_s(_ptr: number, _channels: number): Promise<void> {}
+  async AVCodecParameters_sample_rate_s(_ptr: number, _sampleRate: number): Promise<void> {}
+  async AVCodecParameters_codec_type_s(_ptr: number, _type: number): Promise<void> {}
+  async AVCodecParameters_extradata_s(_ptr: number, _extradata: number): Promise<void> {}
+  async AVCodecParameters_extradata_size_s(_ptr: number, _size: number): Promise<void> {}
 
   /**
    * Get codec context extradata
    */
   async AVCodecContext_extradata(contextId: number): Promise<number> {
-    const ctx = this.contexts.get(contextId);
-    if (ctx && ctx.codecCtx.extraData) {
-      return 1; // Non-zero means extradata exists
+    const context = this.contexts.get(contextId);
+    if (context) {
+      const extradata = native.AVCodecContext_extradata(context.ctx);
+      return extradata ? Number(extradata) : 0;
     }
     return 0;
   }
 
   async AVCodecContext_extradata_size(contextId: number): Promise<number> {
-    const ctx = this.contexts.get(contextId);
-    if (ctx && ctx.codecCtx.extraData) {
-      return ctx.codecCtx.extraData.length;
+    const context = this.contexts.get(contextId);
+    if (context) {
+      return native.AVCodecContext_extradata_size(context.ctx);
     }
     return 0;
   }
 
-  // ============================================
-  // Filter graph functions (stubs for compatibility)
-  // ============================================
-
-  /**
-   * Initialize a filter graph (stub - not fully implemented)
-   * Returns [filter_graph, buffersrc_ctx, buffersink_ctx]
-   */
-  async ff_init_filter_graph(
-    _filterName: string,
-    _inputCtx: any,
-    _outputCtx: any
-  ): Promise<[number, number, number]> {
-    // For audio resampling, we would use node-av's Resampler
-    // For now, return dummy values that indicate "no filter needed"
-    console.warn('NodeAVAdapter: ff_init_filter_graph not fully implemented - audio will not be resampled');
-    return [1, 1, 1]; // Dummy filter graph ID
+  // Filter graph functions (stubs)
+  async ff_init_filter_graph(_filterName: string, _inputCtx: any, _outputCtx: any): Promise<[number, number, number]> {
+    console.warn('NodeAVAdapter: ff_init_filter_graph not fully implemented');
+    return [1, 1, 1];
   }
 
-  /**
-   * Run frames through a filter graph (stub)
-   */
-  async ff_filter_multi(
-    _buffersrc_ctx: number,
-    _buffersink_ctx: number,
-    _framePtr: number,
-    frames: LibAVFrame[],
-    _fin: boolean = false
-  ): Promise<LibAVFrame[]> {
-    // Pass-through for now - no actual filtering
+  async ff_filter_multi(_buffersrc_ctx: number, _buffersink_ctx: number, _framePtr: number, frames: LibAVFrame[], _fin: boolean = false): Promise<LibAVFrame[]> {
     return frames;
   }
 
-  /**
-   * Free a filter graph (stub)
-   */
-  async avfilter_graph_free_js(_filterGraph: number): Promise<void> {
-    // No-op
-  }
+  async avfilter_graph_free_js(_filterGraph: number): Promise<void> {}
 
-  // ============================================
   // Frame management functions
-  // ============================================
-
-  /**
-   * Allocate a frame
-   */
   async av_frame_alloc(): Promise<number> {
-    const frame = new Frame();
-    frame.alloc();
+    const frame = native.av_frame_alloc();
     const frameId = this.nextContextId++;
-    // Store frame in a separate map (we can reuse contexts map for simplicity)
-    this.contexts.set(frameId, { 
-      codecCtx: null as any, 
-      codec: null as any, 
-      frame, 
-      packet: null as any 
-    });
+    this.frames.set(frameId, frame);
     return frameId;
   }
 
-  /**
-   * Free a frame
-   */
   async av_frame_free_js(frameId: number): Promise<void> {
-    const ctx = this.contexts.get(frameId);
-    if (ctx?.frame) {
-      ctx.frame.free();
-      this.contexts.delete(frameId);
+    const frame = this.frames.get(frameId);
+    if (frame) {
+      native.av_frame_free_js(frame);
+      this.frames.delete(frameId);
     }
   }
 
   /**
-   * Set frame properties
+   * Helper to get frame pointer from context or standalone frame
    */
-  async AVFrame_pts_s(frameId: number, pts: number): Promise<void> {
+  private getFramePtr(frameId: number): bigint | undefined {
+    // Check contexts first (for frames from ff_init_encoder)
     const ctx = this.contexts.get(frameId);
-    if (ctx?.frame) {
-      ctx.frame.pts = BigInt(pts);
+    if (ctx) return ctx.frame;
+    // Then check standalone frames
+    return this.frames.get(frameId);
+  }
+
+  async AVFrame_pts_s(frameId: number, pts: number): Promise<void> {
+    const frame = this.getFramePtr(frameId);
+    if (frame) {
+      native.AVFrame_pts_s(frame, BigInt(pts));
     }
   }
 
-  async AVFrame_ptshi_s(_frameId: number, _ptshi: number): Promise<void> {
-    // High bits of pts - usually not needed for reasonable timestamps
-  }
+  async AVFrame_ptshi_s(_frameId: number, _ptshi: number): Promise<void> {}
 
   async AVFrame_key_frame_s(frameId: number, keyFrame: number): Promise<void> {
-    const ctx = this.contexts.get(frameId);
-    if (ctx?.frame) {
-      ctx.frame.keyFrame = keyFrame;
+    const frame = this.getFramePtr(frameId);
+    if (frame) {
+      native.AVFrame_key_frame_s(frame, keyFrame);
     }
   }
 
   async AVFrame_pict_type_s(frameId: number, pictType: number): Promise<void> {
-    const ctx = this.contexts.get(frameId);
-    if (ctx?.frame) {
-      ctx.frame.pictType = pictType as AVPictureType;
+    const frame = this.getFramePtr(frameId);
+    if (frame) {
+      native.AVFrame_pict_type_s(frame, pictType);
     }
   }
 
   async AVFrame_sample_aspect_ratio_s(frameId: number, num: number, den: number): Promise<void> {
-    const ctx = this.contexts.get(frameId);
-    if (ctx?.frame) {
-      ctx.frame.sampleAspectRatio = new Rational(num, den);
+    const frame = this.getFramePtr(frameId);
+    if (frame) {
+      native.AVFrame_sample_aspect_ratio_s(frame, num, den);
     }
   }
 
-  // ============================================
-  // Software scaler functions (stubs)
-  // ============================================
-
-  // Software scaler contexts
-  private swsContexts: Map<number, {
-    srcW: number; srcH: number; srcFormat: number;
-    dstW: number; dstH: number; dstFormat: number;
-  }> = new Map();
-  private nextSwsId = 1;
-
-  /**
-   * Get a software scaler context
-   */
+  // Software scaler functions
   async sws_getContext(
     srcW: number, srcH: number, srcFormat: number,
     dstW: number, dstH: number, dstFormat: number,
     _flags: number, _srcFilter: number, _dstFilter: number, _param: number
   ): Promise<number> {
+    const swsCtx = native.sws_getContext(srcW, srcH, srcFormat, dstW, dstH, dstFormat, 0);
+    if (swsCtx === 0n) {
+      return 0;
+    }
     const id = this.nextSwsId++;
-    this.swsContexts.set(id, { srcW, srcH, srcFormat, dstW, dstH, dstFormat });
+    this.swsContexts.set(id, swsCtx);
     return id;
   }
 
-  /**
-   * Scale/convert a frame
-   */
   async sws_scale_frame(swsId: number, dstFrameId: number, srcFrameId: number): Promise<number> {
     const swsCtx = this.swsContexts.get(swsId);
-    if (!swsCtx) {
-      console.error('sws_scale_frame: swsCtx not found');
-      return -1;
-    }
-
-    const srcCtx = this.contexts.get(srcFrameId);
-    const dstCtx = this.contexts.get(dstFrameId);
-    if (!srcCtx?.frame) {
-      console.error('sws_scale_frame: srcCtx.frame not found');
-      return -1;
-    }
-    if (!dstCtx?.frame) {
-      console.error('sws_scale_frame: dstCtx.frame not found');
-      return -1;
-    }
-
-    const { srcW, srcH, srcFormat, dstW, dstH, dstFormat } = swsCtx;
-
-    // Get source frame data - it's stored in the node-av Frame object
-    const srcFrame = srcCtx.frame;
-    const srcData = srcFrame.data;
     
-    if (!srcData || srcData.length === 0) {
-      console.error('sws_scale_frame: srcData is empty');
+    // Source frame - check contexts first, then standalone frames
+    let srcFrame = this.contexts.get(srcFrameId)?.frame;
+    if (!srcFrame) srcFrame = this.frames.get(srcFrameId);
+    
+    // Destination frame - check contexts first, then standalone frames
+    let dstFrame = this.contexts.get(dstFrameId)?.frame;
+    if (!dstFrame) dstFrame = this.frames.get(dstFrameId);
+    
+    if (!swsCtx || !srcFrame || !dstFrame) {
       return -1;
     }
-    
-    // For now, only implement RGBA/BGRA to YUV420P conversion
-    if ((srcFormat === AV_PIX_FMT_RGBA || srcFormat === AV_PIX_FMT_BGRA) && 
-        dstFormat === AV_PIX_FMT_YUV420P) {
-      
-      // Get RGBA data from source frame
-      let rgbaData: Uint8Array;
-      if (Array.isArray(srcData)) {
-        rgbaData = srcData[0];
-      } else {
-        rgbaData = srcData as Uint8Array;
-      }
 
-      if (!rgbaData || rgbaData.length === 0) {
-        console.error('sws_scale_frame: rgbaData is empty');
-        return -1;
-      }
-
-      // Convert RGBA to YUV420P
-      const ySize = dstW * dstH;
-      const uvSize = Math.floor(dstW / 2) * Math.floor(dstH / 2);
-      const yPlane = new Uint8Array(ySize);
-      const uPlane = new Uint8Array(uvSize);
-      const vPlane = new Uint8Array(uvSize);
-
-      const isBGRA = srcFormat === AV_PIX_FMT_BGRA;
-
-      for (let y = 0; y < dstH; y++) {
-        for (let x = 0; x < dstW; x++) {
-          const srcX = Math.floor(x * srcW / dstW);
-          const srcY = Math.floor(y * srcH / dstH);
-          const srcIdx = (srcY * srcW + srcX) * 4;
-          
-          let r, g, b;
-          if (isBGRA) {
-            b = rgbaData[srcIdx] || 0;
-            g = rgbaData[srcIdx + 1] || 0;
-            r = rgbaData[srcIdx + 2] || 0;
-          } else {
-            r = rgbaData[srcIdx] || 0;
-            g = rgbaData[srcIdx + 1] || 0;
-            b = rgbaData[srcIdx + 2] || 0;
-          }
-
-          // RGB to YUV conversion (BT.601)
-          const yVal = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-          yPlane[y * dstW + x] = Math.max(0, Math.min(255, yVal));
-
-          // Subsample U and V
-          if (x % 2 === 0 && y % 2 === 0) {
-            const uvIdx = Math.floor(y / 2) * Math.floor(dstW / 2) + Math.floor(x / 2);
-            const uVal = Math.round(-0.169 * r - 0.331 * g + 0.5 * b + 128);
-            const vVal = Math.round(0.5 * r - 0.419 * g - 0.081 * b + 128);
-            uPlane[uvIdx] = Math.max(0, Math.min(255, uVal));
-            vPlane[uvIdx] = Math.max(0, Math.min(255, vVal));
-          }
-        }
-      }
-
-      // Setup destination frame with YUV420P format
-      const dstFrame = dstCtx.frame;
-      dstFrame.format = AV_PIX_FMT_YUV420P as AVPixelFormat;
-      dstFrame.width = dstW;
-      dstFrame.height = dstH;
-      
-      // Allocate buffer for destination frame
-      const ret = dstFrame.getBuffer();
-      if (ret < 0) {
-        console.error('sws_scale_frame: getBuffer failed:', ret);
-        return ret;
-      }
-      
-      // Copy converted data to destination frame
-      const dstData = dstFrame.data;
-      if (dstData && dstData.length >= 3) {
-        if (dstData[0]) dstData[0].set(yPlane.subarray(0, dstData[0].length));
-        if (dstData[1]) dstData[1].set(uPlane.subarray(0, dstData[1].length));
-        if (dstData[2]) dstData[2].set(vPlane.subarray(0, dstData[2].length));
-      }
-      
-      return 0; // Success
-    }
-
-    // For same format, just copy
-    if (srcFormat === dstFormat && srcW === dstW && srcH === dstH) {
-      const dstFrame = dstCtx.frame;
-      dstFrame.format = srcFormat as AVPixelFormat;
-      dstFrame.width = dstW;
-      dstFrame.height = dstH;
-      const ret = dstFrame.getBuffer();
-      if (ret < 0) return ret;
-      
-      const dstData = dstFrame.data;
-      if (dstData && srcData) {
-        for (let i = 0; i < srcData.length && i < dstData.length; i++) {
-          if (dstData[i] && srcData[i]) {
-            dstData[i].set(srcData[i].subarray(0, dstData[i].length));
-          }
-        }
-      }
-      return 0;
-    }
-
-    console.warn(`NodeAVAdapter: Unsupported format conversion: ${srcFormat} -> ${dstFormat}`);
-    return -1;
+    return native.sws_scale_frame(swsCtx, dstFrame, srcFrame);
   }
 
-  /**
-   * Free a scaler context
-   */
   async sws_freeContext(swsId: number): Promise<void> {
-    this.swsContexts.delete(swsId);
+    const swsCtx = this.swsContexts.get(swsId);
+    if (swsCtx) {
+      native.sws_freeContext(swsCtx);
+      this.swsContexts.delete(swsId);
+    }
   }
 
-  // ============================================
   // Codec functions
-  // ============================================
-
-  /**
-   * Send a frame to the encoder
-   */
   async avcodec_send_frame(contextId: number, frameId: number | null): Promise<number> {
-    const ctx = this.contexts.get(contextId);
-    if (!ctx) return -1;
+    const context = this.contexts.get(contextId);
+    if (!context) return -1;
     
     if (frameId === null) {
-      // Flush
-      return await ctx.codecCtx.sendFrame(null);
+      return native.avcodec_send_frame(context.ctx, 0n);
     }
     
-    const frameCtx = this.contexts.get(frameId);
-    if (!frameCtx?.frame) return -1;
+    const frame = this.getFramePtr(frameId);
+    if (!frame) return -1;
     
-    return await ctx.codecCtx.sendFrame(frameCtx.frame);
+    return native.avcodec_send_frame(context.ctx, frame);
   }
 
-  /**
-   * Receive a packet from the encoder
-   */
   async avcodec_receive_packet(contextId: number, _pktId: number): Promise<number> {
-    const ctx = this.contexts.get(contextId);
-    if (!ctx) return -1;
+    const context = this.contexts.get(contextId);
+    if (!context) return -1;
     
-    return await ctx.codecCtx.receivePacket(ctx.packet);
+    return native.avcodec_receive_packet(context.ctx, context.pkt);
   }
 
-  /**
-   * Copy out a packet
-   */
-  async ff_copyout_packet(pktId: number): Promise<LibAVPacket> {
-    const ctx = this.contexts.get(pktId);
-    if (!ctx?.packet) {
+  async ff_copyout_packet(contextId: number): Promise<LibAVPacket> {
+    const context = this.contexts.get(contextId);
+    if (!context?.pkt) {
       return { data: new Uint8Array(0) };
     }
-    return this.packetToLibAV(ctx.packet);
-  }
-
-  /**
-   * Get the stride (linesize) for a plane based on pixel format
-   */
-  private getPlaneStride(format: number, width: number, planeIndex: number): number {
-    // Common pixel formats
-    const AV_PIX_FMT_YUV420P = 0;
-    const AV_PIX_FMT_YUV422P = 4;
-    const AV_PIX_FMT_YUV444P = 5;
-    const AV_PIX_FMT_NV12 = 23;
-    const AV_PIX_FMT_RGBA = 26;
-    const AV_PIX_FMT_BGRA = 28;
-    
-    switch (format) {
-      case AV_PIX_FMT_YUV420P:
-        // Y plane has full width, U and V are half width
-        return planeIndex === 0 ? width : Math.ceil(width / 2);
-      case AV_PIX_FMT_YUV422P:
-        // Y plane has full width, U and V are half width
-        return planeIndex === 0 ? width : Math.ceil(width / 2);
-      case AV_PIX_FMT_YUV444P:
-        // All planes have full width
-        return width;
-      case AV_PIX_FMT_NV12:
-        // Y plane and interleaved UV plane both have full width
-        return width;
-      case AV_PIX_FMT_RGBA:
-      case AV_PIX_FMT_BGRA:
-        return width * 4;
-      default:
-        // Default: assume planar YUV with chroma subsampling
-        return planeIndex === 0 ? width : Math.ceil(width / 2);
-    }
-  }
-
-  /**
-   * Convert node-av Frame to libav.js-compatible format
-   */
-  private frameToLibAV(frame: Frame, codecCtx: CodecContext): LibAVFrame {
-    const isAudio = codecCtx.codecType === AVMEDIA_TYPE_AUDIO;
-    const data = frame.data;
-
-    if (isAudio) {
-      // Audio frame
-      const isPlanar = this.isSampleFormatPlanar(frame.format as AVSampleFormat);
-      let frameData: Uint8Array | Uint8Array[];
-
-      if (isPlanar && data && data.length > 1) {
-        frameData = data.map(d => new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
-      } else if (data && data[0]) {
-        frameData = new Uint8Array(data[0].buffer, data[0].byteOffset, data[0].byteLength);
-      } else {
-        frameData = new Uint8Array(0);
-      }
-
-      const pts = Number(frame.pts);
-      const [ptsLow, ptsHi] = this.f64toi64(pts);
-
-      return {
-        data: frameData,
-        format: frame.format,
-        channels: frame.channelLayout?.nbChannels || 2,
-        channel_layout: Number(frame.channelLayout?.mask || 3n),
-        sample_rate: frame.sampleRate,
-        nb_samples: frame.nbSamples,
-        pts: ptsLow,
-        ptshi: ptsHi,
-      };
-    } else {
-      // Video frame - need to provide data as single buffer with layout info
-      const width = frame.width;
-      const height = frame.height;
-      const format = frame.format;
-      
-      const pts = Number(frame.pts);
-      const [ptsLow, ptsHi] = this.f64toi64(pts);
-      
-      if (!data || data.length === 0) {
-        return {
-          data: new Uint8Array(0),
-          format,
-          width,
-          height,
-          pts: ptsLow,
-          ptshi: ptsHi,
-          key_frame: frame.keyFrame ? 1 : 0,
-        };
-      }
-
-      // Calculate layout based on pixel format
-      // For planar formats like YUV420P, we need to concatenate planes and provide layout
-      const layout: Array<{offset: number, stride: number}> = [];
-      let totalSize = 0;
-      
-      // Get linesize (stride) from frame if available, otherwise calculate
-      const linesizes = frame.linesize || [];
-      
-      for (let i = 0; i < data.length; i++) {
-        const planeData = data[i];
-        const stride = linesizes[i] || this.getPlaneStride(format, width, i);
-        layout.push({ offset: totalSize, stride });
-        totalSize += planeData.byteLength;
-      }
-      
-      // Concatenate all plane data into single buffer
-      const combinedData = new Uint8Array(totalSize);
-      let offset = 0;
-      for (const planeData of data) {
-        combinedData.set(new Uint8Array(planeData.buffer, planeData.byteOffset, planeData.byteLength), offset);
-        offset += planeData.byteLength;
-      }
-
-      return {
-        data: combinedData,
-        layout,
-        format,
-        width,
-        height,
-        pts: ptsLow,
-        ptshi: ptsHi,
-        key_frame: frame.keyFrame ? 1 : 0,
-      };
-    }
-  }
-
-  /**
-   * Convert libav.js frame to node-av Frame
-   */
-  private libAVToFrame(libavFrame: LibAVFrame, frame: Frame, codecCtx: CodecContext): void {
-    const isAudio = codecCtx.codecType === AVMEDIA_TYPE_AUDIO;
-
-    frame.unref();
-
-    if (isAudio) {
-      frame.format = (libavFrame.format ?? codecCtx.sampleFormat) as AVSampleFormat;
-      frame.sampleRate = libavFrame.sample_rate ?? codecCtx.sampleRate;
-      frame.nbSamples = libavFrame.nb_samples ?? codecCtx.frameSize;
-      
-      if (libavFrame.channel_layout !== undefined) {
-        const nbChannels = libavFrame.channels ?? Math.log2(libavFrame.channel_layout + 1);
-        frame.channelLayout = { nbChannels, order: 0, mask: BigInt(libavFrame.channel_layout) };
-      } else if (libavFrame.channels !== undefined) {
-        frame.channelLayout = { 
-          nbChannels: libavFrame.channels, 
-          order: 0, 
-          mask: BigInt((1 << libavFrame.channels) - 1) 
-        };
-      } else {
-        frame.channelLayout = codecCtx.channelLayout;
-      }
-    } else {
-      frame.format = (libavFrame.format ?? codecCtx.pixelFormat) as AVPixelFormat;
-      frame.width = libavFrame.width ?? codecCtx.width;
-      frame.height = libavFrame.height ?? codecCtx.height;
-    }
-
-    if (libavFrame.pts !== undefined) {
-      frame.pts = BigInt(this.i64tof64(libavFrame.pts, libavFrame.ptshi || 0));
-    }
-
-    // Allocate frame buffer
-    const ret = frame.getBuffer();
-    if (ret < 0) {
-      throw new FFmpegError(ret);
-    }
-
-    // Copy data
-    const frameData = frame.data;
-    if (frameData && libavFrame.data) {
-      if (Array.isArray(libavFrame.data)) {
-        // Planar data
-        for (let i = 0; i < libavFrame.data.length && i < frameData.length; i++) {
-          if (frameData[i] && libavFrame.data[i]) {
-            const copyLen = Math.min(frameData[i].length, libavFrame.data[i].length);
-            frameData[i].set(libavFrame.data[i].subarray(0, copyLen));
-          }
-        }
-      } else {
-        // Interleaved data
-        if (frameData[0]) {
-          const copyLen = Math.min(frameData[0].length, libavFrame.data.length);
-          frameData[0].set(libavFrame.data.subarray(0, copyLen));
-        }
-      }
-    }
-  }
-
-  /**
-   * Convert node-av Packet to libav.js-compatible format
-   */
-  private packetToLibAV(packet: Packet): LibAVPacket {
-    const data = packet.data;
-    const packetData = data ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(0);
-
-    const pts = Number(packet.pts);
-    const dts = Number(packet.dts);
-    const duration = Number(packet.duration);
-
-    const [ptsLow, ptsHi] = this.f64toi64(pts);
-    const [dtsLow, dtsHi] = this.f64toi64(dts);
-    const [durLow, durHi] = this.f64toi64(duration);
-
-    return {
-      data: packetData.slice(), // Copy the data
-      pts: ptsLow,
-      ptshi: ptsHi,
-      dts: dtsLow,
-      dtshi: dtsHi,
-      duration: durLow,
-      durationhi: durHi,
-      flags: packet.flags,
-    };
-  }
-
-  /**
-   * Check if sample format is planar
-   */
-  private isSampleFormatPlanar(format: AVSampleFormat): boolean {
-    return format === AV_SAMPLE_FMT_U8P ||
-           format === AV_SAMPLE_FMT_S16P ||
-           format === AV_SAMPLE_FMT_S32P ||
-           format === AV_SAMPLE_FMT_FLTP;
+    const tbNum = native.AVCodecContext_time_base_num(context.ctx);
+    const tbDen = native.AVCodecContext_time_base_den(context.ctx);
+    return this.copyoutPacket(context.pkt, tbNum, tbDen);
   }
 }
 
