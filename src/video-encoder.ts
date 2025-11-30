@@ -141,9 +141,15 @@ export class VideoEncoder extends et.DequeueEventTarget {
              *    implementation supporting config. */
             // 4. Configure [[codec implementation]] with config.
             const libav = this._libav = await libavs.get();
+            // Use the original codec string from config, not the libav codec name
+            const codecString = typeof config.codec === 'string' ? config.codec : config.codec.libavjs.codec;
             this._metadata = {
                 decoderConfig: {
-                    codec: supported.codec
+                    codec: codecString,
+                    codedWidth: config.width,
+                    codedHeight: config.height,
+                    displayAspectWidth: config.displayWidth || config.width,
+                    displayAspectHeight: config.displayHeight || config.height
                 }
             };
 
