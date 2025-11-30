@@ -27,6 +27,14 @@ By following this approach, the project will provide a modern, efficient, and ma
 - [libav.js](https://github.com/Yahweasel/libav.js)
 - [napigen](https://github.com/cztomsik/napigen)
 
+## audio
+
+audio is also impemented with some web audio api APIs
+
+these are added by using https://github.com/ircam-ismm/node-web-audio-api
+
+read its readme and examples to understand how to use it
+
 ## changes to node-av-adapter.ts
 
 before doing any changes to node-av-adapter.ts first see the corresponding function implmentation in https://github.com/Yahweasel/libav.js repository. this will help you have a starting point. that codebase use the preferred values for our use cases. You just need to apply modifications assuming NAPI instead of WASM.
