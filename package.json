@@ -34,6 +34,7 @@
   },
   "homepage": "https://github.com/ennuicastr/libavjs-webcodecs-polyfill#readme",
   "dependencies": {
+    "@diffusionstudio/core": "^4.0.2",
     "@libav.js/types": "^6.7.7",
     "@ungap/global-this": "^0.4.4",
     "node-av": "^5.0.2"
@@ -43,7 +44,12 @@
     "@rollup/plugin-commonjs": "^25.0.7",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-terser": "^0.4.4",
+    "@types/node": "^24.10.1",
+    "@types/sharp": "^0.31.1",
+    "canvas": "^3.2.0",
+    "node-web-audio-api": "^1.0.7",
     "rollup": "^4.12.0",
+    "sharp": "^0.34.5",
     "typescript": "^5.2.2",
     "vitest": "^4.0.14"
   }

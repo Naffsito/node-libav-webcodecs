@@ -10,6 +10,7 @@ import {
   Frame,
   Packet,
   FFmpegError,
+  Rational,
 } from 'node-av/lib';
 
 import {
@@ -39,7 +40,7 @@ import {
   AVERROR_EAGAIN,
 } from 'node-av/constants';
 
-import type { AVCodecID, AVSampleFormat, AVPixelFormat } from 'node-av/constants';
+import type { AVCodecID, AVSampleFormat, AVPixelFormat, AVPictureType, FFEncoderCodec, FFDecoderCodec } from 'node-av/constants';
 
 /**
  * Frame data structure compatible with libav.js
@@ -165,7 +166,7 @@ export class NodeAVAdapter {
    * Find an encoder by name
    */
   async avcodec_find_encoder_by_name(name: string): Promise<number> {
-    const codec = Codec.findEncoderByName(name);
+    const codec = Codec.findEncoderByName(name as FFEncoderCodec);
     return codec ? 1 : 0;
   }
 
@@ -173,7 +174,7 @@ export class NodeAVAdapter {
    * Find a decoder by name
    */
   async avcodec_find_decoder_by_name(name: string): Promise<number> {
-    const codec = Codec.findDecoderByName(name);
+    const codec = Codec.findDecoderByName(name as FFDecoderCodec);
     return codec ? 1 : 0;
   }
 
@@ -184,7 +185,7 @@ export class NodeAVAdapter {
     codecName: string,
     codecpara?: any
   ): Promise<[number, number, number, number]> {
-    const codec = Codec.findDecoderByName(codecName);
+    const codec = Codec.findDecoderByName(codecName as FFDecoderCodec);
     if (!codec) {
       throw new Error(`Decoder not found: ${codecName}`);
     }
@@ -231,7 +232,7 @@ export class NodeAVAdapter {
     codecName: string,
     config?: LibAVJSCodec
   ): Promise<[number, number, number, number, number]> {
-    const codec = Codec.findEncoderByName(codecName);
+    const codec = Codec.findEncoderByName(codecName as FFEncoderCodec);
     if (!codec) {
       throw new Error(`Encoder not found: ${codecName}`);
     }
@@ -260,18 +261,18 @@ export class NodeAVAdapter {
       if (ctx.width !== undefined) codecCtx.width = ctx.width;
       if (ctx.height !== undefined) codecCtx.height = ctx.height;
       if (ctx.framerate_num !== undefined && ctx.framerate_den !== undefined) {
-        codecCtx.framerate = { num: ctx.framerate_num, den: ctx.framerate_den };
+        codecCtx.framerate = new Rational(ctx.framerate_num, ctx.framerate_den);
         // Set time_base as inverse of framerate for video encoders
-        codecCtx.timeBase = { num: ctx.framerate_den, den: ctx.framerate_num };
+        codecCtx.timeBase = new Rational(ctx.framerate_den, ctx.framerate_num);
       } else if (ctx.width !== undefined) {
         // Default time_base for video if framerate not specified
-        codecCtx.timeBase = { num: 1, den: 1000 };
+        codecCtx.timeBase = new Rational(1, 1000);
       }
     }
 
     // For video codecs, ensure time_base is set
     if (codec.type === AVMEDIA_TYPE_VIDEO && !codecCtx.timeBase.den) {
-      codecCtx.timeBase = { num: 1, den: 1000 };
+      codecCtx.timeBase = new Rational(1, 1000);
     }
 
     // Open the codec
@@ -466,7 +467,7 @@ export class NodeAVAdapter {
   async AVCodecContext_time_base_s(contextId: number, num: number, den: number): Promise<void> {
     const ctx = this.contexts.get(contextId);
     if (ctx) {
-      ctx.codecCtx.timeBase = { num, den };
+      ctx.codecCtx.timeBase = new Rational(num, den);
     }
   }
 
@@ -644,21 +645,21 @@ export class NodeAVAdapter {
   async AVFrame_key_frame_s(frameId: number, keyFrame: number): Promise<void> {
     const ctx = this.contexts.get(frameId);
     if (ctx?.frame) {
-      ctx.frame.keyFrame = keyFrame === 1;
+      ctx.frame.keyFrame = keyFrame;
     }
   }
 
   async AVFrame_pict_type_s(frameId: number, pictType: number): Promise<void> {
     const ctx = this.contexts.get(frameId);
     if (ctx?.frame) {
-      ctx.frame.pictType = pictType;
+      ctx.frame.pictType = pictType as AVPictureType;
     }
   }
 
   async AVFrame_sample_aspect_ratio_s(frameId: number, num: number, den: number): Promise<void> {
     const ctx = this.contexts.get(frameId);
     if (ctx?.frame) {
-      ctx.frame.sampleAspectRatio = { num, den };
+      ctx.frame.sampleAspectRatio = new Rational(num, den);
     }
   }
 
@@ -802,7 +803,7 @@ export class NodeAVAdapter {
     frame.unref();
 
     if (isAudio) {
-      frame.format = libavFrame.format ?? codecCtx.sampleFormat;
+      frame.format = (libavFrame.format ?? codecCtx.sampleFormat) as AVSampleFormat;
       frame.sampleRate = libavFrame.sample_rate ?? codecCtx.sampleRate;
       frame.nbSamples = libavFrame.nb_samples ?? codecCtx.frameSize;
       
@@ -819,7 +820,7 @@ export class NodeAVAdapter {
         frame.channelLayout = codecCtx.channelLayout;
       }
     } else {
-      frame.format = libavFrame.format ?? codecCtx.pixelFormat;
+      frame.format = (libavFrame.format ?? codecCtx.pixelFormat) as AVPixelFormat;
       frame.width = libavFrame.width ?? codecCtx.width;
       frame.height = libavFrame.height ?? codecCtx.height;
     }
