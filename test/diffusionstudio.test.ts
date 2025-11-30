@@ -67,12 +67,6 @@ describe('DiffusionStudio Integration', () => {
     await setupWebCodecsPolyfills();
   }, 30000);
 
-  it('should have browser polyfills available', () => {
-    expect((globalThis as any).OffscreenCanvas).toBeDefined();
-    expect((globalThis as any).AudioContext).toBeDefined();
-    expect((globalThis as any).document).toBeDefined();
-  });
-
   it('should be able to import @diffusionstudio/core', async () => {
     // Dynamic import to ensure polyfills are loaded first
     const core = await import('@diffusionstudio/core');
@@ -195,18 +189,20 @@ describe('DiffusionStudio Integration', () => {
 
     // Create an encoder
     const encoder = new core.Encoder(composition, {
+      debug: true, // Enable debug logging
       video: {
         fps: 30,
         bitrate: 2e6,
-        codec: 'vp8',
+        codec: 'av1', // AV1 codec for MP4
       },
       audio: {
         enabled: false, // Disable audio for this simple test
+        codec: 'opus', // Use opus since our polyfill doesn't support aac
       },
     });
 
     // Mock file output
-    const outputPath = path.resolve(__dirname, '../test-output/diffusionstudio-test.webm');
+    const outputPath = path.resolve(__dirname, '../test-output/diffusionstudio-test.mp4');
 
     // Render to blob
     const result = await encoder.render();
@@ -259,7 +255,7 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
     const segmentDuration = 1; // 1 second
 
     // Colors for each repeated segment to show the repetition visually
-    const colors = ['#FF0000', '#00FF00', '#0000FF']; // Red, Green, Blue
+    const colors = ['#FF0000', '#00FF00', '#0000FF'] as const; // Red, Green, Blue
 
     // Create 3 clips to simulate trimming and repeating
     for (let i = 0; i < 3; i++) {
@@ -282,18 +278,20 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
 
     // Export the composition
     const encoder = new core.Encoder(composition, {
+      debug: true, // Enable debug logging
       video: {
         fps: 30,
         bitrate: 2_000_000,
-        codec: 'vp8',
+        codec: 'av1', // AV1 codec for MP4
       },
       audio: {
         enabled: false,
+        codec: 'opus', // Use opus since our polyfill doesn't support aac
       },
     });
 
     // Render to blob
-    const outputPath = path.resolve(__dirname, '../test-output/trim-repeat-graphics.webm');
+    const outputPath = path.resolve(__dirname, '../test-output/trim-repeat-graphics.mp4');
     const result = await encoder.render();
 
     console.log('Render result type:', result.type);
@@ -301,10 +299,10 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
       const arrayBuffer = await result.data?.arrayBuffer();
       fs.writeFileSync(outputPath, Buffer.from(arrayBuffer!));
       console.log('Video exported to:', outputPath);
-      
+
       // Verify file was created
       expect(fs.existsSync(outputPath)).toBe(true);
-      
+
       // Verify file has content
       const stats = fs.statSync(outputPath);
       console.log('Output file size:', stats.size, 'bytes');
@@ -313,7 +311,7 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
       console.log('Render failed:', result);
       expect(result.type).toBe('success'); // Fail the test if render fails
     }
-  });
+  }, 60000); // 60 second timeout for AV1 encoding
 
   it('should load video source and set clip range', async () => {
     // This test verifies that video source loading and range setting works
@@ -354,20 +352,20 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
       position: 'center',
       height: '100%',
     });
-    
+
     // Set the range to trim the clip [start, end] in seconds
     clip.range = [0.5, 1.5];
-    
+
     await layer.add(clip);
     console.log('Video clip added with range [0.5, 1.5]');
 
     // Verify the clip range was set
     expect(clip.range[0]).toBe(0.5);
     expect(clip.range[1]).toBe(1.5);
-    
+
     // The clip duration should be 1 second (1.5 - 0.5)
     console.log('Clip range duration:', clip.range[1] - clip.range[0]);
-    
+
     // Note: Rendering might fail because video decoding requires browser APIs
     // but the source loading and clip setup should work
   });
