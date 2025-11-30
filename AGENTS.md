@@ -25,6 +25,10 @@ By following this approach, the project will provide a modern, efficient, and ma
 - [libav.js](https://github.com/Yahweasel/libav.js)
 - [napigen](https://github.com/cztomsik/napigen)
 
+## changes to node-av-adapter.ts
+
+before doing any changes to node-av-adapter.ts first see the corresponding function implmentation in https://github.com/Yahweasel/libav.js repository. this will help you have a starting point. that codebase use the preferred values for our use cases. You just need to apply modifications assuming NAPI instead of WASM.
+
 ## zig guide lines
 
 - always use c allocator so it is the same as libav
