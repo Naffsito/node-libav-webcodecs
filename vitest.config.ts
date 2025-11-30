@@ -8,6 +8,7 @@ export default defineConfig({
     testTimeout: 30000,
     // Run sequentially in main thread
     fileParallelism: false,
-    isolate: false,
+    isolate: true,
+    pool: 'threads'
   },
 });
