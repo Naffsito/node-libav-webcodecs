@@ -79,8 +79,8 @@ export class VideoFrame {
                  * frame’s [[timestamp]]. */
                 timestamp: init?.timestamp || data.timestamp,
                 /* Assign the result of calling Copy VideoFrame metadata with
-                 * init’s metadata to frame.[[metadata]]. */
-                metadata: JSON.parse(JSON.stringify(init?.metadata))
+                 * init's metadata to frame.[[metadata]]. */
+                metadata: init?.metadata ? JSON.parse(JSON.stringify(init.metadata)) : undefined
             });
 
         } else if (data instanceof HTMLVideoElement) {
