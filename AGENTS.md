@@ -2,9 +2,11 @@ this library is for implementing webcodecs in node.js using node-av
 
 format and align markdown tables in your message output
 
-you should write your code in zig inside native directory or typescript inside src.
+you should write your code in zig inside native directory or typescript inside src or test.
 
 for validating something works vitest tests are preferred over temporary scripts
+
+NEVER import from .js files in your typescript files. NEVER write js files. use typescript
 
 ## reading files on github
 
