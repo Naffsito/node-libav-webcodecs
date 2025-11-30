@@ -49,3 +49,13 @@ running specific test files is preferred so other test files will not pollute yo
 ## running scripts
 
 to run typescript scripts use `pnpm tsx scriptpath` so that you have support for typescript and esm without extensions
+
+## diffusionstudio
+
+diffusionstudio is a library that let you edit and compose video in the web using webcodecs, canvas and other web APIs.
+
+we are implementing webcodecs and others polyfills in this codebase so that we can use that library in the server and node.js
+
+to know how to use diffusionstudio fetch the github repo files with gitchamber: https://github.com/diffusionstudio/core
+
+this codebase has docs and examples
