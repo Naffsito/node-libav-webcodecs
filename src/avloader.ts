@@ -42,8 +42,8 @@ let libavOptions: any = {};
  * Check if we're running in Node.js
  */
 export function isNode(): boolean {
-    return typeof process !== 'undefined' && 
-           process.versions != null && 
+    return typeof process !== 'undefined' &&
+           process.versions != null &&
            process.versions.node != null;
 }
 
@@ -106,7 +106,7 @@ export async function get(): Promise<LibAVJS.LibAV> {
         }
         return getNodeAVAdapter() as unknown as LibAVJS.LibAV;
     }
-    
+
     // libav.js backend
     if (libavs.length)
         return libavs.shift()!;
@@ -167,11 +167,11 @@ export async function load(options?: { backend?: AVBackend }) {
         // In Node.js without libav.js, use node-av
         backend = "node-av";
     }
-    
+
     if (backend === "libavjs") {
         LibAVWrapper = LibAVWrapper || LibAV;
     }
-    
+
     decoders = await codecs(false);
     encoders = await codecs(true);
 }
@@ -448,7 +448,7 @@ function av1Advanced(codecParts: string[], ctx: LibAVJS.AVCodecContextProps) {
         if (level >= 0 && level <= 23)
             ctx.level = level;
         else
-            throw new TypeError("Invalid AV1 level");
+        throw new TypeError(`Invalid AV1 level: ${codecParts[2]}`);
     }
 
     if (codecParts[3]) {
