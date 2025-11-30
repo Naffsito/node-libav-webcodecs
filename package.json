@@ -50,6 +50,7 @@
     "node-web-audio-api": "^1.0.7",
     "rollup": "^4.12.0",
     "sharp": "^0.34.5",
+    "tsx": "^4.21.0",
     "typescript": "^5.2.2",
     "vitest": "^4.0.14"
   }
