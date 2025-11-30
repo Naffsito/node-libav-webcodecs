@@ -667,31 +667,169 @@ export class NodeAVAdapter {
   // Software scaler functions (stubs)
   // ============================================
 
+  // Software scaler contexts
+  private swsContexts: Map<number, {
+    srcW: number; srcH: number; srcFormat: number;
+    dstW: number; dstH: number; dstFormat: number;
+  }> = new Map();
+  private nextSwsId = 1;
+
   /**
-   * Get a software scaler context (stub)
+   * Get a software scaler context
    */
   async sws_getContext(
-    _srcW: number, _srcH: number, _srcFormat: number,
-    _dstW: number, _dstH: number, _dstFormat: number,
+    srcW: number, srcH: number, srcFormat: number,
+    dstW: number, dstH: number, dstFormat: number,
     _flags: number, _srcFilter: number, _dstFilter: number, _param: number
   ): Promise<number> {
-    console.warn('NodeAVAdapter: sws_getContext not fully implemented - video will not be scaled');
-    return 1; // Dummy scaler ID
+    const id = this.nextSwsId++;
+    this.swsContexts.set(id, { srcW, srcH, srcFormat, dstW, dstH, dstFormat });
+    return id;
   }
 
   /**
-   * Scale a frame (stub - pass-through)
+   * Scale/convert a frame
    */
-  async sws_scale_frame(_sws: number, _dstFrame: number, _srcFrame: number): Promise<number> {
-    // Would need to implement actual scaling using node-av or sharp
-    return 0; // Success
+  async sws_scale_frame(swsId: number, dstFrameId: number, srcFrameId: number): Promise<number> {
+    const swsCtx = this.swsContexts.get(swsId);
+    if (!swsCtx) {
+      console.error('sws_scale_frame: swsCtx not found');
+      return -1;
+    }
+
+    const srcCtx = this.contexts.get(srcFrameId);
+    const dstCtx = this.contexts.get(dstFrameId);
+    if (!srcCtx?.frame) {
+      console.error('sws_scale_frame: srcCtx.frame not found');
+      return -1;
+    }
+    if (!dstCtx?.frame) {
+      console.error('sws_scale_frame: dstCtx.frame not found');
+      return -1;
+    }
+
+    const { srcW, srcH, srcFormat, dstW, dstH, dstFormat } = swsCtx;
+
+    // Get source frame data - it's stored in the node-av Frame object
+    const srcFrame = srcCtx.frame;
+    const srcData = srcFrame.data;
+    
+    if (!srcData || srcData.length === 0) {
+      console.error('sws_scale_frame: srcData is empty');
+      return -1;
+    }
+    
+    // For now, only implement RGBA/BGRA to YUV420P conversion
+    if ((srcFormat === AV_PIX_FMT_RGBA || srcFormat === AV_PIX_FMT_BGRA) && 
+        dstFormat === AV_PIX_FMT_YUV420P) {
+      
+      // Get RGBA data from source frame
+      let rgbaData: Uint8Array;
+      if (Array.isArray(srcData)) {
+        rgbaData = srcData[0];
+      } else {
+        rgbaData = srcData as Uint8Array;
+      }
+
+      if (!rgbaData || rgbaData.length === 0) {
+        console.error('sws_scale_frame: rgbaData is empty');
+        return -1;
+      }
+
+      // Convert RGBA to YUV420P
+      const ySize = dstW * dstH;
+      const uvSize = Math.floor(dstW / 2) * Math.floor(dstH / 2);
+      const yPlane = new Uint8Array(ySize);
+      const uPlane = new Uint8Array(uvSize);
+      const vPlane = new Uint8Array(uvSize);
+
+      const isBGRA = srcFormat === AV_PIX_FMT_BGRA;
+
+      for (let y = 0; y < dstH; y++) {
+        for (let x = 0; x < dstW; x++) {
+          const srcX = Math.floor(x * srcW / dstW);
+          const srcY = Math.floor(y * srcH / dstH);
+          const srcIdx = (srcY * srcW + srcX) * 4;
+          
+          let r, g, b;
+          if (isBGRA) {
+            b = rgbaData[srcIdx] || 0;
+            g = rgbaData[srcIdx + 1] || 0;
+            r = rgbaData[srcIdx + 2] || 0;
+          } else {
+            r = rgbaData[srcIdx] || 0;
+            g = rgbaData[srcIdx + 1] || 0;
+            b = rgbaData[srcIdx + 2] || 0;
+          }
+
+          // RGB to YUV conversion (BT.601)
+          const yVal = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+          yPlane[y * dstW + x] = Math.max(0, Math.min(255, yVal));
+
+          // Subsample U and V
+          if (x % 2 === 0 && y % 2 === 0) {
+            const uvIdx = Math.floor(y / 2) * Math.floor(dstW / 2) + Math.floor(x / 2);
+            const uVal = Math.round(-0.169 * r - 0.331 * g + 0.5 * b + 128);
+            const vVal = Math.round(0.5 * r - 0.419 * g - 0.081 * b + 128);
+            uPlane[uvIdx] = Math.max(0, Math.min(255, uVal));
+            vPlane[uvIdx] = Math.max(0, Math.min(255, vVal));
+          }
+        }
+      }
+
+      // Setup destination frame with YUV420P format
+      const dstFrame = dstCtx.frame;
+      dstFrame.format = AV_PIX_FMT_YUV420P as AVPixelFormat;
+      dstFrame.width = dstW;
+      dstFrame.height = dstH;
+      
+      // Allocate buffer for destination frame
+      const ret = dstFrame.getBuffer();
+      if (ret < 0) {
+        console.error('sws_scale_frame: getBuffer failed:', ret);
+        return ret;
+      }
+      
+      // Copy converted data to destination frame
+      const dstData = dstFrame.data;
+      if (dstData && dstData.length >= 3) {
+        if (dstData[0]) dstData[0].set(yPlane.subarray(0, dstData[0].length));
+        if (dstData[1]) dstData[1].set(uPlane.subarray(0, dstData[1].length));
+        if (dstData[2]) dstData[2].set(vPlane.subarray(0, dstData[2].length));
+      }
+      
+      return 0; // Success
+    }
+
+    // For same format, just copy
+    if (srcFormat === dstFormat && srcW === dstW && srcH === dstH) {
+      const dstFrame = dstCtx.frame;
+      dstFrame.format = srcFormat as AVPixelFormat;
+      dstFrame.width = dstW;
+      dstFrame.height = dstH;
+      const ret = dstFrame.getBuffer();
+      if (ret < 0) return ret;
+      
+      const dstData = dstFrame.data;
+      if (dstData && srcData) {
+        for (let i = 0; i < srcData.length && i < dstData.length; i++) {
+          if (dstData[i] && srcData[i]) {
+            dstData[i].set(srcData[i].subarray(0, dstData[i].length));
+          }
+        }
+      }
+      return 0;
+    }
+
+    console.warn(`NodeAVAdapter: Unsupported format conversion: ${srcFormat} -> ${dstFormat}`);
+    return -1;
   }
 
   /**
-   * Free a scaler context (stub)
+   * Free a scaler context
    */
-  async sws_freeContext(_sws: number): Promise<void> {
-    // No-op
+  async sws_freeContext(swsId: number): Promise<void> {
+    this.swsContexts.delete(swsId);
   }
 
   // ============================================
