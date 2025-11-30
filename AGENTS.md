@@ -5,3 +5,9 @@ this library is for implementing webcodecs in node.js using node-av
 so `curl gitchamber.com` to see how to search, list and read files on github repos
 
 ALWAYS use it to read files on github instead of alternatives
+
+## testing
+
+tests are implemented using vitest. use `vitest ` to run all tests or `vitest pathtofile` to run one or `-t` to run a specific test in a file
+
+running specific test files is preferred so other test files will not pollute your results and output is smaller
