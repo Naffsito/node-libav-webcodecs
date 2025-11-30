@@ -790,7 +790,22 @@ pub fn copyout_f32(js: *napigen.JsContext, ptr: usize, count: usize) napigen.Err
     return typed_array;
 }
 
+/// Get the element size in bytes for a typed array type.
+fn getTypedArrayElementSize(array_type: napigen.napi.napi_typedarray_type) usize {
+    // napi_typedarray_type is a c_uint with values:
+    // 0 = int8, 1 = uint8, 2 = uint8_clamped, 3 = int16, 4 = uint16,
+    // 5 = int32, 6 = uint32, 7 = float32, 8 = float64, 9 = bigint64, 10 = biguint64
+    return switch (array_type) {
+        0, 1, 2 => 1, // int8, uint8, uint8_clamped
+        3, 4 => 2, // int16, uint16
+        5, 6, 7 => 4, // int32, uint32, float32
+        8, 9, 10 => 8, // float64, bigint64, biguint64
+        else => 1,
+    };
+}
+
 /// Copy int16 from JS to native memory (safe for aliased memory).
+/// Handles any typed array input by calculating actual byte length.
 pub fn copyin_s16(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) napigen.Error!void {
     if (ptr == 0) return;
     var array_type: napigen.napi.napi_typedarray_type = undefined;
@@ -800,7 +815,9 @@ pub fn copyin_s16(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) 
     var byte_offset: usize = undefined;
     try napigen.check(napigen.napi.napi_get_typedarray_info(js.env, data, &array_type, &length, &array_data, &arraybuffer, &byte_offset));
     if (array_data) |src_ptr| {
-        const byte_size = length * 2;
+        // Calculate actual byte size based on the array type
+        const element_size = getTypedArrayElementSize(array_type);
+        const byte_size = length * element_size;
         const src: [*]const u8 = @ptrCast(@alignCast(src_ptr));
         const dest: [*]u8 = @ptrFromInt(ptr);
         for (0..byte_size) |i| {
@@ -810,6 +827,7 @@ pub fn copyin_s16(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) 
 }
 
 /// Copy int32 from JS to native memory (safe for aliased memory).
+/// Handles any typed array input by calculating actual byte length.
 pub fn copyin_s32(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) napigen.Error!void {
     if (ptr == 0) return;
     var array_type: napigen.napi.napi_typedarray_type = undefined;
@@ -819,7 +837,9 @@ pub fn copyin_s32(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) 
     var byte_offset: usize = undefined;
     try napigen.check(napigen.napi.napi_get_typedarray_info(js.env, data, &array_type, &length, &array_data, &arraybuffer, &byte_offset));
     if (array_data) |src_ptr| {
-        const byte_size = length * 4;
+        // Calculate actual byte size based on the array type
+        const element_size = getTypedArrayElementSize(array_type);
+        const byte_size = length * element_size;
         const src: [*]const u8 = @ptrCast(@alignCast(src_ptr));
         const dest: [*]u8 = @ptrFromInt(ptr);
         for (0..byte_size) |i| {
@@ -829,6 +849,7 @@ pub fn copyin_s32(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) 
 }
 
 /// Copy float32 from JS to native memory (safe for aliased memory).
+/// Handles any typed array input by calculating actual byte length.
 pub fn copyin_f32(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) napigen.Error!void {
     if (ptr == 0) return;
     var array_type: napigen.napi.napi_typedarray_type = undefined;
@@ -838,7 +859,9 @@ pub fn copyin_f32(js: *napigen.JsContext, ptr: usize, data: napigen.napi_value) 
     var byte_offset: usize = undefined;
     try napigen.check(napigen.napi.napi_get_typedarray_info(js.env, data, &array_type, &length, &array_data, &arraybuffer, &byte_offset));
     if (array_data) |src_ptr| {
-        const byte_size = length * 4;
+        // Calculate actual byte size based on the array type
+        const element_size = getTypedArrayElementSize(array_type);
+        const byte_size = length * element_size;
         const src: [*]const u8 = @ptrCast(@alignCast(src_ptr));
         const dest: [*]u8 = @ptrFromInt(ptr);
         for (0..byte_size) |i| {
