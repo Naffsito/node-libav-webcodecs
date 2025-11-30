@@ -13,3 +13,7 @@ ALWAYS run this command to read files on github instead of alternatives
 tests are implemented using vitest. use `vitest ` to run all tests or `vitest pathtofile` to run one or `-t` to run a specific test in a file
 
 running specific test files is preferred so other test files will not pollute your results and output is smaller
+
+## running scripts
+
+to run typescript scripts use `pnpm tsx scriptpath` so that you have support for typescript and esm without extensions
