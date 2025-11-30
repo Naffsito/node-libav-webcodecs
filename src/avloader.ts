@@ -385,11 +385,28 @@ export function encoder(
                 }
                 break;
 
+            case "avc1":
+                video = true;
+                outCodec = "libx264";
+
+                // Set default preset for faster encoding
+                options.preset = "medium";
+                
+                if (config.latencyMode === "realtime") {
+                    options.preset = "ultrafast";
+                    options.tune = "zerolatency";
+                }
+
+                // Check for advanced options
+                if (!h264Advanced(codecParts, ctx))
+                    return null;
+
+                break;
+
             // Unsupported
             case "mp3":
             case "ulaw":
             case "alaw":
-            case "avc1":
                 return null;
 
             // Unrecognized
@@ -631,5 +648,79 @@ function vp9Advanced(codecParts: string[], ctx: LibAVJS.AVCodecContextProps) {
 
     /* The remaining values have to do with color formats, which we don't
      * support correctly anyway */
+    return true;
+}
+
+/**
+ * Handler for advanced options for H.264/AVC.
+ * @param codecParts  .-separated parts of the codec string.
+ * @param ctx  Context to populate with advanced options.
+ * 
+ * H.264 codec string format: avc1.PPCCLL (6 hex characters)
+ * - PP: profile_idc (2 hex digits)
+ *   - 42 (66): Baseline
+ *   - 4D (77): Main
+ *   - 58 (88): Extended  
+ *   - 64 (100): High
+ * - CC: constraint_set flags (2 hex digits)
+ * - LL: level_idc (2 hex digits)
+ *   - 1e (30): Level 3.0
+ *   - 1f (31): Level 3.1
+ *   - 28 (40): Level 4.0
+ *   - 29 (41): Level 4.1
+ */
+function h264Advanced(codecParts: string[], ctx: LibAVJS.AVCodecContextProps) {
+    if (codecParts[1]) {
+        const avcC = codecParts[1];
+        if (avcC.length !== 6) {
+            // Invalid codec string format, but we can still try to encode
+            // Some implementations use shorter strings
+            return true;
+        }
+
+        // Parse profile_idc (first 2 hex characters)
+        const profileIdc = parseInt(avcC.substring(0, 2), 16);
+        // Parse constraint_set flags (middle 2 hex characters) - currently unused
+        // const constraintSet = parseInt(avcC.substring(2, 4), 16);
+        // Parse level_idc (last 2 hex characters)
+        const levelIdc = parseInt(avcC.substring(4, 6), 16);
+
+        // Map profile_idc to x264 profile
+        switch (profileIdc) {
+            case 66: // Baseline
+                ctx.profile = 0;
+                break;
+            case 77: // Main
+                ctx.profile = 1;
+                break;
+            case 88: // Extended
+                // Extended profile not widely supported in x264, fall back to Main
+                ctx.profile = 1;
+                break;
+            case 100: // High
+                ctx.profile = 2;
+                break;
+            case 110: // High 10
+            case 122: // High 4:2:2
+            case 244: // High 4:4:4 Predictive
+                // High bit-depth profiles - valid but may not be fully supported
+                ctx.profile = 2;
+                break;
+            default:
+                // Unknown profile, use default
+                break;
+        }
+
+        // Set level (level_idc / 10 gives the level number, e.g., 30 -> 3.0)
+        if (levelIdc > 0 && levelIdc <= 62) {
+            ctx.level = levelIdc;
+        }
+    }
+
+    // Default to YUV420P for H.264
+    if (typeof ctx.pix_fmt !== "number") {
+        ctx.pix_fmt = 0 /* YUV420P */;
+    }
+
     return true;
 }

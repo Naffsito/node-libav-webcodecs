@@ -9,7 +9,7 @@ export default defineConfig({
     // Run sequentially in main thread
     // fileParallelism: false,
     // isolate: false,
-    pool: 'threads',
+    // pool: 'threads',
     // Setup file for browser polyfills (runs before all tests)
     setupFiles: ['./test/setup.ts'],
   },

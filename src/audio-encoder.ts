@@ -456,8 +456,12 @@ export class AudioEncoder extends et.DequeueEventTarget {
                 (packet.flags! & 1) ? "key" : "delta";
 
             // 3. timestamp
+            // Note: Some encoders (like AAC) can produce packets with negative timestamps
+            // due to encoder priming/delay. WebCodecs requires non-negative timestamps,
+            // so we clamp to 0.
             let timestamp = libav.i64tof64(packet.pts!, packet.ptshi!);
             timestamp = Math.floor(timestamp / sampleRate * 1000000);
+            if (timestamp < 0) timestamp = 0;
 
             // 4. duration
             let duration: number | undefined;

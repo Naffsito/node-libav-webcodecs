@@ -8,6 +8,8 @@ for validating something works vitest tests are preferred over temporary scripts
 
 NEVER import from .js files in your typescript files. NEVER write js files. use typescript
 
+the original codebase was for a libav.js based webcodecs polyfill. some codecs are missing because of this: av1 and h264 are missing because of licensing reasons. now we can add those back
+
 ## goal of this project
 
 The overall goal of this project is to provide access to advanced media processing and codec functionality—similar to what [libav.js](https://github.com/Yahweasel/libav.js) offers—but directly from Node.js, efficiently and natively. Rather than relying on wrappers like node-av (which may differ from the official C API), or using WASM-based solutions, we aim to implement a native Node.js binding to the Libav libraries using modern tooling.
