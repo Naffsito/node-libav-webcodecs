@@ -10,7 +10,7 @@ import {
   Packet,
   SoftwareScaleContext,
   Stream,
-} from 'node-av';
+} from 'node-av/lib';
 import {
   AV_PIX_FMT_YUV420P,
   AV_PIX_FMT_RGB24,
@@ -18,7 +18,10 @@ import {
   AVMEDIA_TYPE_VIDEO,
   AVERROR_EOF,
   AVERROR_EAGAIN,
-} from 'node-av';
+  SWS_BILINEAR,
+  AVSEEK_FLAG_BACKWARD,
+} from 'node-av/constants';
+import type { AVPixelFormat } from 'node-av/constants';
 
 const SAMPLE_VIDEO = path.join(__dirname, '../samples/sample2.webm');
 const OUTPUT_DIR = path.join(__dirname, '../test-output');
@@ -147,10 +150,9 @@ describe('Video Frame Extraction', () => {
         // Create a software scaler to convert YUV to RGB
         const swsCtx = new SoftwareScaleContext();
         swsCtx.getContext(
-          width, height, frame.format,
+          width, height, frame.format as AVPixelFormat,
           width, height, AV_PIX_FMT_RGB24,
-          2, // SWS_BILINEAR
-          null, null, null
+          SWS_BILINEAR
         );
 
         // Create output frame for RGB data
@@ -261,7 +263,7 @@ describe('Video Frame Extraction', () => {
 
     // Use seekFrame function to jump to the desired timestamp
     // Seek to any keyframe before or at the target position
-    const seekRet = await formatCtx.seekFrame(videoStreamIndex, targetPts, 1); // AVSEEK_FLAG_BACKWARD = 1
+    const seekRet = await formatCtx.seekFrame(videoStreamIndex, targetPts, AVSEEK_FLAG_BACKWARD);
     console.log(`Seek result: ${seekRet}`);
 
     // Flush decoder after seek by calling avcodec_flush_buffers equivalent
@@ -323,7 +325,7 @@ describe('Video Frame Extraction', () => {
           const height = frame.height;
 
           const swsCtx = new SoftwareScaleContext();
-          swsCtx.getContext(width, height, frame.format, width, height, AV_PIX_FMT_RGB24, 2, null, null, null);
+          swsCtx.getContext(width, height, frame.format as AVPixelFormat, width, height, AV_PIX_FMT_RGB24, SWS_BILINEAR);
 
           const rgbFrame = new Frame();
           rgbFrame.alloc();
