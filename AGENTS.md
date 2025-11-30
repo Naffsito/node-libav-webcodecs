@@ -59,3 +59,5 @@ we are implementing webcodecs and others polyfills in this codebase so that we c
 to know how to use diffusionstudio fetch the github repo files with gitchamber: https://github.com/diffusionstudio/core
 
 this codebase has docs and examples
+
+to debug the diffusionstudio source code you can inspect the file node_modules/@diffusionstudio/core/dist/core.es.js
