@@ -10,7 +10,6 @@
     "default": "./dist/libavjs-webcodecs-polyfill.js"
   },
   "scripts": {
-    "build": "tsc && rollup -c",
     "clean": "rm -rf dist/",
     "test": "vitest run",
     "test:watch": "vitest"
