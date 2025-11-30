@@ -4,9 +4,9 @@ format and align markdown tables in your message output
 
 ## reading files on github
 
-so `curl gitchamber.com` to see how to search, list and read files on github repos
+do `curl gitchamber.com` to see how to search, list and read files on github repos
 
-ALWAYS use it to read files on github instead of alternatives
+ALWAYS run this command to read files on github instead of alternatives
 
 ## testing
 
