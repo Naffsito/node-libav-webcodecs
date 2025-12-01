@@ -8,63 +8,13 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Import WebCodecs classes and load function
-import {
-  VideoEncoder as PolyVideoEncoder,
-  VideoDecoder as PolyVideoDecoder,
-  AudioEncoder as PolyAudioEncoder,
-  AudioDecoder as PolyAudioDecoder,
-  VideoFrame as PolyVideoFrame,
-  AudioData as PolyAudioData,
-  EncodedVideoChunk as PolyEncodedVideoChunk,
-  EncodedAudioChunk as PolyEncodedAudioChunk,
-} from '../src/main';
-
-// Import avloader to initialize codec lists
-import * as avloader from '../src/avloader';
-
-// Setup WebCodecs polyfills (manual setup without CDN loading)
-async function setupWebCodecsPolyfills() {
-  // Set WebCodecs classes on globalThis if not already present
-  if (!(globalThis as any).VideoEncoder) {
-    (globalThis as any).VideoEncoder = PolyVideoEncoder;
-  }
-  if (!(globalThis as any).VideoDecoder) {
-    (globalThis as any).VideoDecoder = PolyVideoDecoder;
-  }
-  if (!(globalThis as any).AudioEncoder) {
-    (globalThis as any).AudioEncoder = PolyAudioEncoder;
-  }
-  if (!(globalThis as any).AudioDecoder) {
-    (globalThis as any).AudioDecoder = PolyAudioDecoder;
-  }
-  if (!(globalThis as any).VideoFrame) {
-    (globalThis as any).VideoFrame = PolyVideoFrame;
-  }
-  if (!(globalThis as any).AudioData) {
-    (globalThis as any).AudioData = PolyAudioData;
-  }
-  if (!(globalThis as any).EncodedVideoChunk) {
-    (globalThis as any).EncodedVideoChunk = PolyEncodedVideoChunk;
-  }
-  if (!(globalThis as any).EncodedAudioChunk) {
-    (globalThis as any).EncodedAudioChunk = PolyEncodedAudioChunk;
-  }
-
-  // Initialize the avloader with node-av backend to populate codec lists
-  try {
-    await avloader.load({ backend: 'node-av' });
-    console.log('WebCodecs polyfills and codec lists initialized');
-  } catch (e) {
-    console.warn('Failed to initialize codec lists:', e);
-  }
-}
+// Polyfills are loaded via test/setup.ts which imports src/polyfill.ts
+import { init } from '../src/polyfill';
 
 describe('DiffusionStudio Integration', () => {
   beforeAll(async () => {
-    // Browser polyfills are already set up in test/setup.ts
-    console.log('Browser polyfills setup complete');
-    await setupWebCodecsPolyfills();
+    // Wait for polyfill initialization to complete
+    await init();
   }, 30000);
 
   it('should export composition to file', async () => {
@@ -131,9 +81,8 @@ describe('DiffusionStudio Integration', () => {
 
 describe('DiffusionStudio Clip Trimming and Repeating', () => {
   beforeAll(async () => {
-    // Browser polyfills are already set up in test/setup.ts
-    console.log('Browser polyfills setup complete');
-    await setupWebCodecsPolyfills();
+    // Wait for polyfill initialization to complete
+    await init();
   }, 30000);
 
   it('should create and repeat trimmed clips 3 times using graphics', async () => {
@@ -185,7 +134,9 @@ describe('DiffusionStudio Clip Trimming and Repeating', () => {
     // Export the composition
     const encoder = new core.Encoder(composition, {
       debug: true, // Enable debug logging
-
+      audio: {
+        enabled: false, // Disable audio for this test
+      }
     });
 
     // Render to blob

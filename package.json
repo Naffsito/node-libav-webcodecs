@@ -1,13 +1,20 @@
 {
-  "name": "libavjs-webcodecs-polyfill",
+  "name": "node-libav-webcodecs",
   "version": "0.5.5",
-  "description": "A WebCodecs polyfill (ponyfill, really), using libav.js",
-  "main": "dist/libavjs-webcodecs-polyfill.js",
+  "description": "WebCodecs API polyfill for Node.js using libav",
+  "main": "src/main.ts",
   "types": "src/main.ts",
   "exports": {
-    "types": "./src/main.ts",
-    "import": "./dist/libavjs-webcodecs-polyfill.mjs",
-    "default": "./dist/libavjs-webcodecs-polyfill.js"
+    ".": {
+      "types": "./src/main.ts",
+      "import": "./src/main.ts",
+      "default": "./src/main.ts"
+    },
+    "./polyfill": {
+      "types": "./src/polyfill.ts",
+      "import": "./src/polyfill.ts",
+      "default": "./src/polyfill.ts"
+    }
   },
   "scripts": {
     "clean": "rm -rf dist/",
@@ -16,22 +23,22 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ennuicastr/libavjs-webcodecs-polyfill.git"
+    "url": "git+https://github.com/user/node-libav-webcodecs.git"
   },
   "keywords": [
     "webcodecs",
     "ffmpeg",
-    "audio",
+    "libav",
     "video",
     "encoding",
-    "decoding"
+    "decoding",
+    "node"
   ],
-  "author": "Yahweasel",
   "license": "0BSD",
   "bugs": {
-    "url": "https://github.com/ennuicastr/libavjs-webcodecs-polyfill/issues"
+    "url": "https://github.com/user/node-libav-webcodecs/issues"
   },
-  "homepage": "https://github.com/ennuicastr/libavjs-webcodecs-polyfill#readme",
+  "homepage": "https://github.com/user/node-libav-webcodecs#readme",
   "dependencies": {
     "@diffusionstudio/core": "^4.0.2",
     "@libav.js/types": "^6.7.7",

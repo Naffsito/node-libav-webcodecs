@@ -14,7 +14,7 @@ if (fs.existsSync(testOutputDir)) {
 }
 fs.mkdirSync(testOutputDir, { recursive: true });
 
-// Load all browser API polyfills
-import './polyfills';
+// Load all polyfills (WebCodecs + browser APIs)
+import '../src/polyfill';
 
 export {};
