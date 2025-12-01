@@ -19,11 +19,13 @@ pub fn build(b: *std.Build) void {
     // Add napigen
     napigen.setup(lib);
 
-    // Check for FFMPEG_PREFIX environment variable first (for CI and custom builds)
-    const ffmpeg_prefix = std.process.getEnvVarOwned(b.allocator, "FFMPEG_PREFIX") catch null;
+    // Check for ffmpeg-prefix build option first, then FFMPEG_PREFIX env var
+    const ffmpeg_prefix_opt = b.option([]const u8, "ffmpeg-prefix", "FFmpeg installation prefix (e.g., /opt/homebrew/opt/ffmpeg)");
+    const ffmpeg_prefix = ffmpeg_prefix_opt orelse (std.process.getEnvVarOwned(b.allocator, "FFMPEG_PREFIX") catch null);
 
     if (ffmpeg_prefix) |prefix| {
         // Use the provided prefix
+        std.debug.print("Using FFmpeg prefix: {s}\n", .{prefix});
         const lib_path = std.fmt.allocPrint(b.allocator, "{s}/lib", .{prefix}) catch @panic("OOM");
         const include_path = std.fmt.allocPrint(b.allocator, "{s}/include", .{prefix}) catch @panic("OOM");
 
@@ -31,6 +33,7 @@ pub fn build(b: *std.Build) void {
         lib.root_module.addIncludePath(.{ .cwd_relative = include_path });
         lib.root_module.addRPath(.{ .cwd_relative = lib_path });
     } else {
+        std.debug.print("No FFmpeg prefix provided, using platform defaults\n", .{});
         // Cross-platform FFmpeg library paths (fallback)
         const target_info = target.result;
         switch (target_info.os.tag) {

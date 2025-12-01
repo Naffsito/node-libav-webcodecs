@@ -89,7 +89,8 @@ jobs:
           command: |
             cd native
             echo "Building with FFMPEG_PREFIX=$FFMPEG_PREFIX"
-            zig build -Doptimize=ReleaseFast
+            # Pass FFmpeg prefix directly to Zig build
+            zig build -Doptimize=ReleaseFast -Dffmpeg-prefix="$FFMPEG_PREFIX"
 
       - name: List build output
         run: ls -laR native/zig-out/
