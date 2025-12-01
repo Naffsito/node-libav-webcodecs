@@ -33,20 +33,155 @@ async function main() {
     background: '#000000',
   });
 
-  // Video layer - sequential mode so clips play one after another
-  const videoLayer = new core.Layer({ mode: 'SEQUENTIAL' });
-  await composition.add(videoLayer);
+  // Create a 2x2 grid of videos - each clip fills its quadrant exactly
+  // Composition: 1280x720, each quadrant: 640x360
+  // Leave 2px gap on each side for grid lines (4px total)
+  const clipWidth = 636;
+  const clipHeight = 356;
+  
+  const gridPositions = [
+    { x: clipWidth / 2, y: clipHeight / 2 },                          // top-left
+    { x: 640 + 4 + clipWidth / 2, y: clipHeight / 2 },                // top-right
+    { x: clipWidth / 2, y: 360 + 4 + clipHeight / 2 },                // bottom-left
+    { x: 640 + 4 + clipWidth / 2, y: 360 + 4 + clipHeight / 2 },      // bottom-right
+  ];
 
-  // Add video clip 3 times, each trimmed to 1 second
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
+    const videoLayer = new core.Layer();
+    await composition.add(videoLayer);
+    
     const clip = new core.VideoClip(source, {
-      position: 'center',
-      height: '100%',
+      x: gridPositions[i].x,
+      y: gridPositions[i].y,
+      width: clipWidth,
+      height: clipHeight,
     });
-    clip.range = [0, 1]; // First 1 second only
+    clip.duration = 3;
     await videoLayer.add(clip);
-    console.log(`Added clip ${i + 1}/3`);
+    console.log(`Added grid clip ${i + 1}/4`);
   }
+
+  // Grid lines
+  const gridLayer = new core.Layer();
+  await composition.add(gridLayer);
+
+  // Vertical line
+  await gridLayer.add(new core.RectangleClip({
+    x: 640, y: 360,
+    width: 4, height: 720,
+    fill: '#FFFFFF',
+    duration: 3,
+  }));
+
+  // Horizontal line
+  await gridLayer.add(new core.RectangleClip({
+    x: 640, y: 360,
+    width: 1280, height: 4,
+    fill: '#FFFFFF',
+    duration: 3,
+  }));
+
+  // Animated rectangles layer - positioned in corners to not cover center text
+  const animLayer = new core.Layer();
+  await composition.add(animLayer);
+
+  // Spinning rectangle in top-left corner
+  await animLayer.add(new core.RectangleClip({
+    x: 80,
+    y: 80,
+    width: 60,
+    height: 60,
+    fill: '#e94560',
+    duration: 3,
+    animations: [
+      {
+        key: 'rotation',
+        frames: [
+          { time: 0, value: 0 },
+          { time: 3, value: Math.PI * 4 },
+        ],
+      },
+    ],
+  }));
+
+  // Spinning rectangle in top-right corner
+  await animLayer.add(new core.RectangleClip({
+    x: 1200,
+    y: 80,
+    width: 60,
+    height: 60,
+    fill: '#0f3460',
+    duration: 3,
+    animations: [
+      {
+        key: 'rotation',
+        frames: [
+          { time: 0, value: 0 },
+          { time: 3, value: -Math.PI * 4 },
+        ],
+      },
+    ],
+  }));
+
+  // Pulsing rectangle in bottom-left corner
+  await animLayer.add(new core.RectangleClip({
+    x: 80,
+    y: 640,
+    width: 60,
+    height: 60,
+    fill: '#16c79a',
+    duration: 3,
+    animations: [
+      {
+        key: 'width',
+        easing: 'ease-in-out',
+        frames: [
+          { time: 0, value: 40 },
+          { time: 1.5, value: 100 },
+          { time: 3, value: 40 },
+        ],
+      },
+      {
+        key: 'height',
+        easing: 'ease-in-out',
+        frames: [
+          { time: 0, value: 40 },
+          { time: 1.5, value: 100 },
+          { time: 3, value: 40 },
+        ],
+      },
+    ],
+  }));
+
+  // Pulsing rectangle in bottom-right corner
+  await animLayer.add(new core.RectangleClip({
+    x: 1200,
+    y: 640,
+    width: 60,
+    height: 60,
+    fill: '#f9ed69',
+    duration: 3,
+    animations: [
+      {
+        key: 'width',
+        easing: 'ease-in-out',
+        frames: [
+          { time: 0, value: 40 },
+          { time: 1.5, value: 100 },
+          { time: 3, value: 40 },
+        ],
+      },
+      {
+        key: 'height',
+        easing: 'ease-in-out',
+        frames: [
+          { time: 0, value: 40 },
+          { time: 1.5, value: 100 },
+          { time: 3, value: 40 },
+        ],
+      },
+    ],
+  }));
 
   // Load font from Google Fonts and add text overlay
   const font = await core.loadFont({
@@ -63,6 +198,7 @@ async function main() {
     position: 'center',
     color: '#FFFFFF',
     font,
+    leading: 1.5,
     duration: 3,
   }));
 
