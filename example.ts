@@ -1,6 +1,6 @@
 /**
  * Example: Load video, repeat 3x, trim, add text overlay
- * 
+ *
  * Run with: npx vite-node example.ts
  */
 
@@ -10,11 +10,11 @@ import * as path from 'path';
 
 async function main() {
   await init();
-  
+
   const core = await import('./src/diffusionstudio.js');
 
   console.log('Loading video...');
-  
+
   // Load video file (video-only webm to avoid audio issues)
   const videoPath = path.resolve(import.meta.dirname, 'samples/sample2-video-only.webm');
   const videoBuffer = fs.readFileSync(videoPath);
@@ -35,30 +35,28 @@ async function main() {
 
   // Create a 2x2 grid of videos - each clip fills its quadrant exactly
   // Composition: 1280x720, each quadrant: 640x360
-  // x,y in diffusionstudio = CENTER of the element
-  const clipWidth = 638;
-  const clipHeight = 358;
-  
-  // Quadrant centers (leaving 2px gap for grid lines)
+  const clipWidth = 640;
+  const clipHeight = 360;
+
   const gridPositions = [
-    { x: 319, y: 179 },    // top-left center
-    { x: 961, y: 179 },    // top-right center
-    { x: 319, y: 541 },    // bottom-left center
-    { x: 961, y: 541 },    // bottom-right center
+    { x: 0, y: 0 },        // top-left
+    { x: 640, y: 0 },      // top-right
+    { x: 0, y: 360 },      // bottom-left
+    { x: 640, y: 360 },    // bottom-right
   ];
 
   // Different time ranges for each quadrant
   const timeRanges: [number, number][] = [
-    [0, 0.5],
-    [0.5, 1.0],
-    [1.0, 1.5],
-    [1.5, 2.0],
+    [0.1, 3.1],
+    [0.2, 3.2],
+    [0.3, 3.3],
+    [0.4, 3.4],
   ];
 
   for (let i = 0; i < 4; i++) {
     const videoLayer = new core.Layer();
     await composition.add(videoLayer);
-    
+
     const clip = new core.VideoClip(source, {
       x: gridPositions[i].x,
       y: gridPositions[i].y,
@@ -66,32 +64,11 @@ async function main() {
       height: clipHeight,
     });
     clip.range = timeRanges[i];
+    clip.start = 0;
     clip.duration = 3;
     await videoLayer.add(clip);
     console.log(`Added grid clip ${i + 1}/4 (time: ${timeRanges[i][0]}-${timeRanges[i][1]}s)`);
   }
-
-  // Grid lines - thin lines between quadrants
-  const gridLayer = new core.Layer();
-  await composition.add(gridLayer);
-
-  // Vertical line at center
-  await gridLayer.add(new core.RectangleClip({
-    x: 640, y: 360,
-    width: 2, height: 720,
-    fill: '#FFFFFF',
-    alpha: 0.7,
-    duration: 3,
-  }));
-
-  // Horizontal line at center
-  await gridLayer.add(new core.RectangleClip({
-    x: 640, y: 360,
-    width: 1280, height: 2,
-    fill: '#FFFFFF',
-    alpha: 0.7,
-    duration: 3,
-  }));
 
   // Animated rectangles layer - positioned in corners to not cover center text
   const animLayer = new core.Layer();
