@@ -23,24 +23,30 @@ pub fn build(b: *std.Build) void {
     const target_info = target.result;
     switch (target_info.os.tag) {
         .macos => {
-            if (target_info.cpu.arch == .aarch64) {
-                // macOS ARM (Apple Silicon) - Homebrew
-                lib.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/ffmpeg/lib" });
-                lib.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/ffmpeg/include" });
-            } else {
-                // macOS Intel - Homebrew
-                lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/opt/ffmpeg/lib" });
-                lib.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/opt/ffmpeg/include" });
-            }
+            // macOS - try both Homebrew locations (ARM and Intel)
+            // Add both paths since we might be cross-compiling or on CI
+            lib.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/ffmpeg/lib" }); // ARM
+            lib.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" }); // ARM alternate
+            lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/opt/ffmpeg/lib" }); // Intel
+            lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" }); // Intel alternate
+            lib.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/ffmpeg/include" });
+            lib.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+            lib.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/opt/ffmpeg/include" });
+            lib.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
+            // Add rpath for dynamic linking at runtime
+            lib.root_module.addRPath(.{ .cwd_relative = "/opt/homebrew/opt/ffmpeg/lib" });
+            lib.root_module.addRPath(.{ .cwd_relative = "/usr/local/opt/ffmpeg/lib" });
         },
         .linux => {
             // Linux - standard system paths (apt/dnf installed ffmpeg-dev)
             // Try common paths for different distros
-            lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib/x86_64-linux-gnu" }); // Debian/Ubuntu
+            lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib/x86_64-linux-gnu" }); // Debian/Ubuntu x64
+            lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib/aarch64-linux-gnu" }); // Debian/Ubuntu ARM64
             lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib64" }); // Fedora/RHEL
             lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib" }); // Generic
             lib.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
             lib.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/ffmpeg" }); // Some distros
+            lib.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/x86_64-linux-gnu" }); // Debian multiarch
         },
         .windows => {
             // Windows - common install locations

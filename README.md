@@ -10,48 +10,60 @@ npm install node-libav-webcodecs
 
 ## Usage
 
-**Important:** Use `vite-node` to run scripts due to `node-web-audio-api` compatibility issues with other runners.
+**Important:** Use `vite-node` to run scripts due to `node-web-audio-api` compatibility issues.
 
 ```bash
 npx vite-node your-script.ts
 ```
 
-### Example
+### Example: Load video, repeat 3x, trim, add text
 
 ```typescript
 import { init } from 'node-libav-webcodecs/polyfill';
 import * as fs from 'fs';
+import * as path from 'path';
 
 async function main() {
   await init();
   
   const core = await import('@diffusionstudio/core');
 
+  // Load video file
+  const videoBuffer = fs.readFileSync('input.webm');
+  const videoBlob = new Blob([videoBuffer], { type: 'video/webm' });
+  const source = await core.Source.from(videoBlob, { mimeType: 'video/webm' });
+
+  console.log('Loaded:', source.width, 'x', source.height);
+
   // Create composition
   const composition = new core.Composition({
     width: 1280,
     height: 720,
-    background: '#1a1a2e',
+    background: '#000000',
   });
 
-  // Add a rectangle
-  const bgLayer = new core.Layer();
-  await composition.add(bgLayer);
-  await bgLayer.add(new core.RectangleClip({
-    x: 640, y: 360,
-    width: 800, height: 200,
-    fill: '#e94560',
-    duration: 3,
-  }));
+  // Video layer - sequential mode (clips play one after another)
+  const videoLayer = new core.Layer({ mode: 'SEQUENTIAL' });
+  await composition.add(videoLayer);
 
-  // Add text overlay
+  // Add video 3 times, each trimmed to 1 second
+  for (let i = 0; i < 3; i++) {
+    const clip = new core.VideoClip(source, {
+      position: 'center',
+      height: '100%',
+    });
+    clip.range = [0, 1]; // Trim to first 1 second
+    await videoLayer.add(clip);
+  }
+
+  // Text overlay
   const textLayer = new core.Layer();
   await composition.add(textLayer);
   await textLayer.add(new core.TextClip({
     text: 'Hello from Node.js!',
-    x: 640, y: 360,
+    x: 640, y: 650,
     color: '#FFFFFF',
-    fontSize: 64,
+    fontSize: 48,
     align: 'center',
     baseline: 'middle',
     duration: 3,
@@ -65,9 +77,7 @@ async function main() {
 
   const result = await encoder.render();
   if (result.type === 'success') {
-    const buffer = Buffer.from(await result.data!.arrayBuffer());
-    fs.writeFileSync('output.mp4', buffer);
-    console.log('Done!');
+    fs.writeFileSync('output.mp4', Buffer.from(await result.data!.arrayBuffer()));
   }
   
   process.exit(0);
@@ -85,22 +95,22 @@ main().catch(console.error);
 
 ## Limitations
 
-- **Audio encoding/decoding is not working** - use `audio: { enabled: false }`
-- Must use `vite-node` to run scripts (node-web-audio-api AudioWorklet issues with tsx/node)
+- **Audio encoding/decoding not working** - use `audio: { enabled: false }`
+- Must use `vite-node` to run scripts
 - Call `process.exit()` after completion to prevent hanging
-- Video decoding requires supported codecs (VP8/VP9 work, some H.264 variants may not)
+- Use video-only files (no audio track) to avoid issues
 
 ## What's included
 
 The `/polyfill` entry point sets up:
 
-| Category  | APIs                                                                                                                  |
-|-----------|-----------------------------------------------------------------------------------------------------------------------|
-| WebCodecs | VideoEncoder, VideoDecoder, AudioEncoder, AudioDecoder, VideoFrame, AudioData, EncodedVideoChunk, EncodedAudioChunk   |
-| Canvas    | HTMLCanvasElement, OffscreenCanvas, CanvasRenderingContext2D, Image, Path2D, DOMMatrix, DOMRect, drawImage for VideoFrame |
-| DOM       | document, window                                                                                                      |
-| Audio     | AudioContext, OfflineAudioContext, AudioBuffer, AudioWorkletNode                                                      |
-| Misc      | requestAnimationFrame, cancelAnimationFrame, performance, ResizeObserver, File, HTMLVideoElement, HTMLAudioElement    |
+| Category  | APIs                                                                                                                |
+|-----------|---------------------------------------------------------------------------------------------------------------------|
+| WebCodecs | VideoEncoder, VideoDecoder, AudioEncoder, AudioDecoder, VideoFrame, AudioData, EncodedVideoChunk, EncodedAudioChunk |
+| Canvas    | HTMLCanvasElement, OffscreenCanvas, CanvasRenderingContext2D, Image, Path2D, DOMMatrix, DOMRect                     |
+| DOM       | document, window                                                                                                    |
+| Audio     | AudioContext, OfflineAudioContext, AudioBuffer, AudioWorkletNode                                                    |
+| Misc      | requestAnimationFrame, performance, ResizeObserver, File, HTMLVideoElement                                          |
 
 ## License
 
