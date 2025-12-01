@@ -3,7 +3,7 @@
  * This tests the exact pattern used by DiffusionStudio's sink processor.
  */
 import { describe, it, expect } from "vitest";
-import "./polyfills";
+import "./setup";
 
 describe.skip("AudioWorklet input receiving", () => {
   it("should receive audio input in AudioWorkletProcessor", async () => {

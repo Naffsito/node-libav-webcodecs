@@ -8,9 +8,13 @@ import * as path from 'path';
 
 // Clean up test-output directory before running tests
 const testOutputDir = path.resolve(__dirname, '..', 'test-output');
-if (fs.existsSync(testOutputDir)) {
-  fs.rmSync(testOutputDir, { recursive: true });
-  console.log('Cleaned test-output directory');
+try {
+  if (fs.existsSync(testOutputDir)) {
+    fs.rmSync(testOutputDir, { recursive: true });
+    console.log('Cleaned test-output directory');
+  }
+} catch (e) {
+  // Ignore errors from parallel test cleanup (race condition)
 }
 fs.mkdirSync(testOutputDir, { recursive: true });
 
