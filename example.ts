@@ -35,15 +35,16 @@ async function main() {
 
   // Create a 2x2 grid of videos - each clip fills its quadrant exactly
   // Composition: 1280x720, each quadrant: 640x360
-  const clipWidth = 640;
-  const clipHeight = 360;
+  // x,y in diffusionstudio = CENTER of the element
+  const clipWidth = 638;
+  const clipHeight = 358;
   
-  // Try top-left origin positioning
+  // Quadrant centers (leaving 2px gap for grid lines)
   const gridPositions = [
-    { x: 0, y: 0 },        // top-left
-    { x: 640, y: 0 },      // top-right
-    { x: 0, y: 360 },      // bottom-left
-    { x: 640, y: 360 },    // bottom-right
+    { x: 319, y: 179 },    // top-left center
+    { x: 961, y: 179 },    // top-right center
+    { x: 319, y: 541 },    // bottom-left center
+    { x: 961, y: 541 },    // bottom-right center
   ];
 
   // Different time ranges for each quadrant
