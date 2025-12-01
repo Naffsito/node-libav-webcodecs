@@ -111,10 +111,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run tests
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
         run: pnpm test
         env:
           CI: true
+
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
+        run: pnpm test
+        env:
+          CI: true
+          DYLD_LIBRARY_PATH: ${{ env.FFMPEG_PREFIX }}/lib
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
