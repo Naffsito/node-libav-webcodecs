@@ -2,13 +2,106 @@
  * Browser API polyfills needed for diffusionstudio and WebCodecs in Node.js
  */
 
-import { createCanvas, Canvas, CanvasRenderingContext2D, Image, DOMMatrix } from 'canvas';
+import { createCanvas, Canvas, CanvasRenderingContext2D, Image, DOMMatrix, registerFont } from 'canvas';
 import {
   AudioContext as NodeAudioContext,
   OfflineAudioContext as NodeOfflineAudioContext,
   AudioWorkletNode,
   AudioBuffer as NodeAudioBuffer,
 } from 'node-web-audio-api';
+import * as fs from 'fs';
+
+// ============================================================================
+// Register system fonts for node-canvas
+// ============================================================================
+
+const fontPaths = [
+  // macOS
+  { path: '/System/Library/Fonts/Helvetica.ttc', family: 'Helvetica' },
+  { path: '/System/Library/Fonts/Geneva.ttf', family: 'Geneva' },
+  { path: '/Library/Fonts/Arial Unicode.ttf', family: 'Arial' },
+  // Linux
+  { path: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', family: 'DejaVu Sans' },
+  { path: '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf', family: 'Liberation Sans' },
+];
+
+for (const font of fontPaths) {
+  if (fs.existsSync(font.path)) {
+    try {
+      registerFont(font.path, { family: font.family });
+    } catch (e) {
+      // Ignore font registration errors
+    }
+  }
+}
+
+// ============================================================================
+// FontFace polyfill for node-canvas
+// ============================================================================
+
+if (!(globalThis as any).FontFace) {
+  (globalThis as any).FontFace = class FontFace {
+    family: string;
+    source: string;
+    status: string = 'unloaded';
+    loaded: Promise<FontFace>;
+    private _resolve!: (value: FontFace) => void;
+
+    constructor(family: string, source: string, descriptors?: any) {
+      this.family = family;
+      this.source = typeof source === 'string' ? source : '';
+      this.loaded = new Promise((resolve) => {
+        this._resolve = resolve;
+      });
+    }
+
+    async load(): Promise<FontFace> {
+      try {
+        // Extract URL from source (handles "url(...)" format)
+        let url = this.source;
+        const urlMatch = this.source.match(/url\(['"]?([^'"]+)['"]?\)/);
+        if (urlMatch) {
+          url = urlMatch[1];
+        }
+
+        // Fetch the font file
+        const response = await fetch(url);
+        const buffer = await response.arrayBuffer();
+        
+        // Write to temp file and register with node-canvas
+        const tempPath = `/tmp/font-${this.family}-${Date.now()}.ttf`;
+        fs.writeFileSync(tempPath, Buffer.from(buffer));
+        registerFont(tempPath, { family: this.family });
+        
+        this.status = 'loaded';
+        this._resolve(this);
+        return this;
+      } catch (e) {
+        this.status = 'error';
+        throw e;
+      }
+    }
+  };
+}
+
+// Document.fonts polyfill - set up immediately
+const fontsSet = new Set<any>();
+const fontsPolyfill = {
+  add: (font: any) => { fontsSet.add(font); return fontsSet; },
+  delete: (font: any) => fontsSet.delete(font),
+  has: (font: any) => fontsSet.has(font),
+  clear: () => fontsSet.clear(),
+  forEach: (cb: any) => fontsSet.forEach(cb),
+  entries: () => fontsSet.entries(),
+  keys: () => fontsSet.keys(),
+  values: () => fontsSet.values(),
+  get size() { return fontsSet.size; },
+  ready: Promise.resolve(),
+  status: 'loaded',
+  [Symbol.iterator]: () => fontsSet[Symbol.iterator](),
+};
+
+// Will be assigned to document.fonts later when document is created
 
 /**
  * IMPORTANT: node-web-audio-api OfflineAudioContext Limitation
@@ -78,6 +171,24 @@ function bgraToRgba(bgra: Uint8Array, width: number, height: number): Uint8Clamp
 function clamp(value: number): number {
   return Math.max(0, Math.min(255, value));
 }
+
+// Patch measureText to add missing fontBoundingBox properties
+const originalMeasureText = CanvasRenderingContext2D.prototype.measureText;
+(CanvasRenderingContext2D.prototype as any).measureText = function(text: string) {
+  const metrics = originalMeasureText.call(this, text);
+  
+  // Add missing fontBoundingBox properties that browsers provide
+  if (metrics.fontBoundingBoxAscent === undefined) {
+    // Use emHeight values as fallback, or estimate from font size
+    const emAscent = (metrics as any).emHeightAscent;
+    const emDescent = (metrics as any).emHeightDescent;
+    
+    (metrics as any).fontBoundingBoxAscent = emAscent ?? metrics.actualBoundingBoxAscent * 1.2;
+    (metrics as any).fontBoundingBoxDescent = emDescent ?? metrics.actualBoundingBoxDescent * 1.2;
+  }
+  
+  return metrics;
+};
 
 // Patch drawImage to handle VideoFrame
 const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
@@ -283,7 +394,13 @@ if (!(globalThis as any).document) {
     body: {
       appendChild: () => {},
     },
+    fonts: fontsPolyfill,
   };
+}
+
+// Ensure document.fonts exists even if document was already defined
+if ((globalThis as any).document && !(globalThis as any).document.fonts) {
+  (globalThis as any).document.fonts = fontsPolyfill;
 }
 
 // Window polyfill

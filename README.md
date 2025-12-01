@@ -16,12 +16,11 @@ npm install node-libav-webcodecs
 npx vite-node your-script.ts
 ```
 
-### Example: Load video, repeat 3x, trim, add text
+### Example: Load video, repeat 3x, trim, add overlay
 
 ```typescript
 import { init } from 'node-libav-webcodecs/polyfill';
 import * as fs from 'fs';
-import * as path from 'path';
 
 async function main() {
   await init();
@@ -32,8 +31,6 @@ async function main() {
   const videoBuffer = fs.readFileSync('input.webm');
   const videoBlob = new Blob([videoBuffer], { type: 'video/webm' });
   const source = await core.Source.from(videoBlob, { mimeType: 'video/webm' });
-
-  console.log('Loaded:', source.width, 'x', source.height);
 
   // Create composition
   const composition = new core.Composition({
@@ -56,16 +53,13 @@ async function main() {
     await videoLayer.add(clip);
   }
 
-  // Text overlay
-  const textLayer = new core.Layer();
-  await composition.add(textLayer);
-  await textLayer.add(new core.TextClip({
-    text: 'Hello from Node.js!',
-    x: 640, y: 650,
-    color: '#FFFFFF',
-    fontSize: 48,
-    align: 'center',
-    baseline: 'middle',
+  // Rectangle overlay
+  const overlayLayer = new core.Layer();
+  await composition.add(overlayLayer);
+  await overlayLayer.add(new core.RectangleClip({
+    position: 'center',
+    width: 600, height: 80,
+    fill: '#e94560',
     duration: 3,
   }));
 
@@ -95,10 +89,11 @@ main().catch(console.error);
 
 ## Limitations
 
-- **Audio encoding/decoding not working** - use `audio: { enabled: false }`
-- Must use `vite-node` to run scripts
-- Call `process.exit()` after completion to prevent hanging
-- Use video-only files (no audio track) to avoid issues
+- **Audio not working** - use `audio: { enabled: false }`
+- **Text requires font setup** - use `core.loadFont()` or use shapes instead
+- Use `vite-node` to run scripts
+- Call `process.exit()` after completion
+- Use video-only files (no audio track)
 
 ## What's included
 

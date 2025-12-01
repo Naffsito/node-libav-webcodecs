@@ -48,18 +48,21 @@ async function main() {
     console.log(`Added clip ${i + 1}/3`);
   }
 
-  // Text overlay layer
+  // Load font from Google Fonts and add text overlay
+  const font = await core.loadFont({
+    family: 'Roboto',
+    weight: '400',
+    source: 'https://fonts.gstatic.com/s/roboto/v32/KFOmCnqEu92Fr1Mu4mxP.ttf',
+  });
+
   const textLayer = new core.Layer();
   await composition.add(textLayer);
 
   await textLayer.add(new core.TextClip({
-    text: 'Hello from Node.js!',
-    x: 640,
-    y: 650,
+    text: 'Rendered in Node.js with WebCodecs',
+    position: 'center',
     color: '#FFFFFF',
-    fontSize: 48,
-    align: 'center',
-    baseline: 'middle',
+    font,
     duration: 3,
   }));
 
