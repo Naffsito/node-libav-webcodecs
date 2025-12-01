@@ -13,16 +13,48 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require_ = createRequire(import.meta.url);
 
+// Determine platform-specific path
+function getPlatformDir(): string {
+  const platform = process.platform;
+  const arch = process.arch;
+  
+  if (platform === 'darwin') {
+    return arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+  } else if (platform === 'linux') {
+    return arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
+  } else if (platform === 'win32') {
+    return arch === 'arm64' ? 'win32-arm64' : 'win32-x64';
+  }
+  return `${platform}-${arch}`;
+}
+
 // Try to load the native module from various locations
 let native: any;
-try {
-  native = require_(path.join(__dirname, '..', 'native', 'zig-out', 'lib', 'libavjs.node'));
-} catch (e) {
+const platformDir = getPlatformDir();
+const searchPaths = [
+  // Development: local build
+  path.join(__dirname, '..', 'native', 'zig-out', 'lib', 'libavjs.node'),
+  // Published: platform-specific dist folder
+  path.join(__dirname, '..', 'dist', platformDir, 'libavjs.node'),
+];
+
+let loadError: Error | null = null;
+for (const searchPath of searchPaths) {
   try {
-    native = require_(path.join(__dirname, '..', 'native', 'zig-out', 'lib', 'libavjs.node'));
-  } catch (e2) {
-    throw new Error('Failed to load native libavjs module. Make sure to build it first with: cd native && zig build');
+    native = require_(searchPath);
+    break;
+  } catch (e) {
+    loadError = e as Error;
   }
+}
+
+if (!native) {
+  throw new Error(
+    `Failed to load native libavjs module for ${platformDir}. ` +
+    `Searched: ${searchPaths.join(', ')}. ` +
+    `Make sure to build it first with: cd native && zig build. ` +
+    `Last error: ${loadError?.message}`
+  );
 }
 
 /**

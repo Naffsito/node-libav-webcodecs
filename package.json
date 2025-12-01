@@ -16,14 +16,20 @@
       "default": "./src/polyfill.ts"
     }
   },
+  "files": [
+    "src",
+    "dist",
+    "native/zig-out/lib"
+  ],
   "scripts": {
     "clean": "rm -rf dist/",
+    "build:native": "cd native && zig build -Doptimize=ReleaseFast",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/user/node-libav-webcodecs.git"
+    "url": "git+https://github.com/remorses/node-libav-webcodecs.git"
   },
   "keywords": [
     "webcodecs",
@@ -36,9 +42,9 @@
   ],
   "license": "0BSD",
   "bugs": {
-    "url": "https://github.com/user/node-libav-webcodecs/issues"
+    "url": "https://github.com/remorses/node-libav-webcodecs/issues"
   },
-  "homepage": "https://github.com/user/node-libav-webcodecs#readme",
+  "homepage": "https://github.com/remorses/node-libav-webcodecs#readme",
   "dependencies": {
     "@diffusionstudio/core": "^4.0.2",
     "@libav.js/types": "^6.7.7",
