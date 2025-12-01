@@ -35,15 +35,23 @@ async function main() {
 
   // Create a 2x2 grid of videos - each clip fills its quadrant exactly
   // Composition: 1280x720, each quadrant: 640x360
-  // Leave 2px gap on each side for grid lines (4px total)
-  const clipWidth = 636;
-  const clipHeight = 356;
+  const clipWidth = 640;
+  const clipHeight = 360;
   
+  // Try top-left origin positioning
   const gridPositions = [
-    { x: clipWidth / 2, y: clipHeight / 2 },                          // top-left
-    { x: 640 + 4 + clipWidth / 2, y: clipHeight / 2 },                // top-right
-    { x: clipWidth / 2, y: 360 + 4 + clipHeight / 2 },                // bottom-left
-    { x: 640 + 4 + clipWidth / 2, y: 360 + 4 + clipHeight / 2 },      // bottom-right
+    { x: 0, y: 0 },        // top-left
+    { x: 640, y: 0 },      // top-right
+    { x: 0, y: 360 },      // bottom-left
+    { x: 640, y: 360 },    // bottom-right
+  ];
+
+  // Different time ranges for each quadrant
+  const timeRanges: [number, number][] = [
+    [0, 0.5],
+    [0.5, 1.0],
+    [1.0, 1.5],
+    [1.5, 2.0],
   ];
 
   for (let i = 0; i < 4; i++) {
@@ -56,28 +64,31 @@ async function main() {
       width: clipWidth,
       height: clipHeight,
     });
+    clip.range = timeRanges[i];
     clip.duration = 3;
     await videoLayer.add(clip);
-    console.log(`Added grid clip ${i + 1}/4`);
+    console.log(`Added grid clip ${i + 1}/4 (time: ${timeRanges[i][0]}-${timeRanges[i][1]}s)`);
   }
 
-  // Grid lines
+  // Grid lines - thin lines between quadrants
   const gridLayer = new core.Layer();
   await composition.add(gridLayer);
 
-  // Vertical line
+  // Vertical line at center
   await gridLayer.add(new core.RectangleClip({
     x: 640, y: 360,
-    width: 4, height: 720,
+    width: 2, height: 720,
     fill: '#FFFFFF',
+    alpha: 0.7,
     duration: 3,
   }));
 
-  // Horizontal line
+  // Horizontal line at center
   await gridLayer.add(new core.RectangleClip({
     x: 640, y: 360,
-    width: 1280, height: 4,
+    width: 1280, height: 2,
     fill: '#FFFFFF',
+    alpha: 0.7,
     duration: 3,
   }));
 
