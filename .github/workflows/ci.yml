@@ -50,18 +50,28 @@ jobs:
       - name: Install FFmpeg (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ffmpeg
+          brew install ffmpeg pkg-config
           echo "FFmpeg installed at:"
-          brew --prefix ffmpeg
-          ls -la $(brew --prefix ffmpeg)/lib/ | head -10
-          ls -la $(brew --prefix ffmpeg)/include/ | head -5
+          FFMPEG_PREFIX=$(brew --prefix ffmpeg)
+          echo "FFMPEG_PREFIX=$FFMPEG_PREFIX"
+          ls -la $FFMPEG_PREFIX/lib/ | head -10
+          ls -la $FFMPEG_PREFIX/include/ | head -5
+          # Set environment variables for the build
+          echo "FFMPEG_PREFIX=$FFMPEG_PREFIX" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$FFMPEG_PREFIX/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+          echo "C_INCLUDE_PATH=$FFMPEG_PREFIX/include:$C_INCLUDE_PATH" >> $GITHUB_ENV
+          echo "CPATH=$FFMPEG_PREFIX/include:$CPATH" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$FFMPEG_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          # Verify pkg-config can find ffmpeg libs
+          pkg-config --libs libavcodec libavformat libavutil
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.14.0
 
-      - name: Build native module
+      - name: Build native module (Linux)
+        if: runner.os == 'Linux'
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
@@ -69,8 +79,56 @@ jobs:
           retry_on: error
           command: cd native && zig build -Doptimize=ReleaseFast
 
+      - name: Build native module (macOS)
+        if: runner.os == 'macOS'
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_on: error
+          command: |
+            cd native
+            # Get FFmpeg paths from Homebrew
+            FFMPEG_PREFIX=$(brew --prefix ffmpeg)
+            echo "Building with FFmpeg from: $FFMPEG_PREFIX"
+            # Build with explicit library and include paths
+            zig build -Doptimize=ReleaseFast \
+              --search-prefix "$FFMPEG_PREFIX"
+
       - name: List build output
         run: ls -laR native/zig-out/
+
+      - name: Verify native module (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "=== File size ==="
+          ls -la native/zig-out/lib/libavjs.node
+          SIZE=$(stat -c%s native/zig-out/lib/libavjs.node)
+          echo "Size: $SIZE bytes"
+          if [ "$SIZE" -lt 500000 ]; then
+            echo "ERROR: Native module is too small ($SIZE bytes), FFmpeg may not be linked"
+            exit 1
+          fi
+          echo "=== Checking for FFmpeg symbols ==="
+          nm -D native/zig-out/lib/libavjs.node | grep -E "avcodec|avformat" | head -10 || true
+          echo "=== Checking dynamic dependencies ==="
+          ldd native/zig-out/lib/libavjs.node | head -20
+
+      - name: Verify native module (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "=== File size ==="
+          ls -la native/zig-out/lib/libavjs.node
+          SIZE=$(stat -f%z native/zig-out/lib/libavjs.node)
+          echo "Size: $SIZE bytes"
+          if [ "$SIZE" -lt 500000 ]; then
+            echo "ERROR: Native module is too small ($SIZE bytes), FFmpeg may not be linked"
+            exit 1
+          fi
+          echo "=== Checking for FFmpeg symbols ==="
+          nm native/zig-out/lib/libavjs.node | grep -E "avcodec|avformat" | head -10 || true
+          echo "=== Checking dynamic dependencies ==="
+          otool -L native/zig-out/lib/libavjs.node | head -20
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
