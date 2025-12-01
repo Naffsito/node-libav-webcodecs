@@ -88,12 +88,8 @@ jobs:
           retry_on: error
           command: |
             cd native
-            # Get FFmpeg paths from Homebrew
-            FFMPEG_PREFIX=$(brew --prefix ffmpeg)
-            echo "Building with FFmpeg from: $FFMPEG_PREFIX"
-            # Build with explicit library and include paths
-            zig build -Doptimize=ReleaseFast \
-              --search-prefix "$FFMPEG_PREFIX"
+            echo "Building with FFMPEG_PREFIX=$FFMPEG_PREFIX"
+            zig build -Doptimize=ReleaseFast
 
       - name: List build output
         run: ls -laR native/zig-out/
