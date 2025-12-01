@@ -1,12 +1,15 @@
 /**
  * Example: Load video, repeat 3x, trim, add text overlay
  *
- * Run with: npx vite-node example.ts
+ * Run with: pnpm tsx example.ts
  */
 
 import { init } from './src/polyfill';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   await init();
@@ -16,7 +19,7 @@ async function main() {
   console.log('Loading video...');
 
   // Load video file (video-only webm to avoid audio issues)
-  const videoPath = path.resolve(import.meta.dirname, 'samples/sample2-video-only.webm');
+  const videoPath = path.resolve(__dirname, 'samples/sample2-video-only.webm');
   const videoBuffer = fs.readFileSync(videoPath);
   const videoBlob = new Blob([videoBuffer], { type: 'video/webm' });
 
@@ -203,7 +206,7 @@ async function main() {
   const result = await encoder.render();
 
   if (result.type === 'success') {
-    const outputPath = path.resolve(import.meta.dirname, 'output-example.mp4');
+    const outputPath = path.resolve(__dirname, 'output-example.mp4');
     const buffer = Buffer.from(await result.data!.arrayBuffer());
     fs.writeFileSync(outputPath, buffer);
     console.log('\nDone:', outputPath, `(${(buffer.length / 1024).toFixed(1)} KB)`);

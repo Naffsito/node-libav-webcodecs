@@ -2,7 +2,7 @@
  * Browser API polyfills needed for diffusionstudio and WebCodecs in Node.js
  */
 
-import { createCanvas, Canvas, CanvasRenderingContext2D, Image, DOMMatrix, registerFont } from 'canvas';
+import { createCanvas, GlobalFonts, Path2D, Image, DOMMatrix } from '@napi-rs/canvas';
 import {
   AudioContext as NodeAudioContext,
   OfflineAudioContext as NodeOfflineAudioContext,
@@ -12,7 +12,7 @@ import {
 import * as fs from 'fs';
 
 // ============================================================================
-// Register system fonts for node-canvas
+// Register system fonts for @napi-rs/canvas
 // ============================================================================
 
 const fontPaths = [
@@ -28,7 +28,7 @@ const fontPaths = [
 for (const font of fontPaths) {
   if (fs.existsSync(font.path)) {
     try {
-      registerFont(font.path, { family: font.family });
+      GlobalFonts.registerFromPath(font.path, font.family);
     } catch (e) {
       // Ignore font registration errors
     }
@@ -68,10 +68,10 @@ if (!(globalThis as any).FontFace) {
         const response = await fetch(url);
         const buffer = await response.arrayBuffer();
         
-        // Write to temp file and register with node-canvas
+        // Write to temp file and register with @napi-rs/canvas
         const tempPath = `/tmp/font-${this.family}-${Date.now()}.ttf`;
         fs.writeFileSync(tempPath, Buffer.from(buffer));
-        registerFont(tempPath, { family: this.family });
+        GlobalFonts.registerFromPath(tempPath, this.family);
         
         this.status = 'loaded';
         this._resolve(this);
@@ -172,156 +172,121 @@ function clamp(value: number): number {
   return Math.max(0, Math.min(255, value));
 }
 
-// Patch measureText to add missing fontBoundingBox properties
-const originalMeasureText = CanvasRenderingContext2D.prototype.measureText;
-(CanvasRenderingContext2D.prototype as any).measureText = function(text: string) {
-  const metrics = originalMeasureText.call(this, text);
+// Store reference to patch context prototype later
+let contextPrototypePatched = false;
+
+function patchContextPrototype(ctx: any) {
+  if (contextPrototypePatched) return;
+  contextPrototypePatched = true;
   
-  // Add missing fontBoundingBox properties that browsers provide
-  if (metrics.fontBoundingBoxAscent === undefined) {
-    // Use emHeight values as fallback, or estimate from font size
-    const emAscent = (metrics as any).emHeightAscent;
-    const emDescent = (metrics as any).emHeightDescent;
+  const proto = Object.getPrototypeOf(ctx);
+  
+  // Patch measureText to add missing fontBoundingBox properties
+  const originalMeasureText = proto.measureText;
+  proto.measureText = function(text: string) {
+    const metrics = originalMeasureText.call(this, text);
     
-    (metrics as any).fontBoundingBoxAscent = emAscent ?? metrics.actualBoundingBoxAscent * 1.2;
-    (metrics as any).fontBoundingBoxDescent = emDescent ?? metrics.actualBoundingBoxDescent * 1.2;
-  }
-  
-  return metrics;
-};
+    // Add missing fontBoundingBox properties that browsers provide
+    if (metrics.fontBoundingBoxAscent === undefined) {
+      // Use emHeight values as fallback, or estimate from font size
+      const emAscent = (metrics as any).emHeightAscent;
+      const emDescent = (metrics as any).emHeightDescent;
+      
+      (metrics as any).fontBoundingBoxAscent = emAscent ?? metrics.actualBoundingBoxAscent * 1.2;
+      (metrics as any).fontBoundingBoxDescent = emDescent ?? metrics.actualBoundingBoxDescent * 1.2;
+    }
+    
+    return metrics;
+  };
 
-// Patch drawImage to handle VideoFrame
-const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
-(CanvasRenderingContext2D.prototype as any).drawImage = function(image: any, ...args: any[]) {
-  // Check if this is a VideoFrame (our polyfill)
-  if (image && typeof image.codedWidth === 'number' && typeof image._libavGetData === 'function') {
-    // Convert VideoFrame to ImageData and draw
-    const frame = image;
-    const format = frame.format;
-    const width = frame.codedWidth;
-    const height = frame.codedHeight;
-    const data = frame._libavGetData();
+  // Patch drawImage to handle VideoFrame
+  const originalDrawImage = proto.drawImage;
+  proto.drawImage = function(image: any, ...args: any[]) {
+    // Check if this is a VideoFrame (our polyfill)
+    if (image && typeof image.codedWidth === 'number' && typeof image._libavGetData === 'function') {
+      // Convert VideoFrame to ImageData and draw
+      const frame = image;
+      const format = frame.format;
+      const width = frame.codedWidth;
+      const height = frame.codedHeight;
+      const data = frame._libavGetData();
 
-    if (!data || data.length === 0) {
-      console.warn('[drawImage] VideoFrame has no data');
+      if (!data || data.length === 0) {
+        console.warn('[drawImage] VideoFrame has no data');
+        return;
+      }
+
+      // Convert YUV to RGBA for canvas
+      let rgbaData: Uint8ClampedArray;
+      if (format === 'I420' || format === 'I420P10') {
+        rgbaData = yuv420ToRgba(data, width, height);
+      } else if (format === 'RGBA') {
+        rgbaData = new Uint8ClampedArray(data);
+      } else if (format === 'BGRA') {
+        rgbaData = bgraToRgba(data, width, height);
+      } else {
+        console.warn('[drawImage] Unsupported VideoFrame format:', format);
+        // Try to treat as YUV420
+        rgbaData = yuv420ToRgba(data, width, height);
+      }
+
+      // Create ImageData and draw it
+      const imageData = this.createImageData(width, height);
+      imageData.data.set(rgbaData);
+
+      // Handle different drawImage signatures
+      if (args.length === 0) {
+        this.putImageData(imageData, 0, 0);
+      } else if (args.length === 2) {
+        // drawImage(image, dx, dy)
+        this.putImageData(imageData, args[0], args[1]);
+      } else if (args.length === 4) {
+        // drawImage(image, dx, dy, dWidth, dHeight) - need to scale
+        const [dx, dy, dWidth, dHeight] = args;
+        // Create temp canvas for scaling
+        const tempCanvas = createCanvas(width, height);
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+        originalDrawImage.call(this, tempCanvas, dx, dy, dWidth, dHeight);
+      } else if (args.length === 8) {
+        // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+        const [sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight] = args;
+        const tempCanvas = createCanvas(width, height);
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+        originalDrawImage.call(this, tempCanvas, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+      }
       return;
     }
 
-    // Convert YUV to RGBA for canvas
-    let rgbaData: Uint8ClampedArray;
-    if (format === 'I420' || format === 'I420P10') {
-      rgbaData = yuv420ToRgba(data, width, height);
-    } else if (format === 'RGBA') {
-      rgbaData = new Uint8ClampedArray(data);
-    } else if (format === 'BGRA') {
-      rgbaData = bgraToRgba(data, width, height);
-    } else {
-      console.warn('[drawImage] Unsupported VideoFrame format:', format);
-      // Try to treat as YUV420
-      rgbaData = yuv420ToRgba(data, width, height);
-    }
-
-    // Create ImageData and draw it
-    const imageData = this.createImageData(width, height);
-    imageData.data.set(rgbaData);
-
-    // Handle different drawImage signatures
-    if (args.length === 0) {
-      this.putImageData(imageData, 0, 0);
-    } else if (args.length === 2) {
-      // drawImage(image, dx, dy)
-      this.putImageData(imageData, args[0], args[1]);
-    } else if (args.length === 4) {
-      // drawImage(image, dx, dy, dWidth, dHeight) - need to scale
-      const [dx, dy, dWidth, dHeight] = args;
-      // Create temp canvas for scaling
-      const tempCanvas = createCanvas(width, height);
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.putImageData(imageData, 0, 0);
-      originalDrawImage.call(this, tempCanvas, dx, dy, dWidth, dHeight);
-    } else if (args.length === 8) {
-      // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
-      const [sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight] = args;
-      const tempCanvas = createCanvas(width, height);
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.putImageData(imageData, 0, 0);
-      originalDrawImage.call(this, tempCanvas, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
-    }
-    return;
-  }
-
-  // Default: call original drawImage
-  return originalDrawImage.call(this, image, ...args);
-};
+    // Default: call original drawImage
+    return originalDrawImage.call(this, image, ...args);
+  };
+}
 
 // ============================================================================
 // Canvas polyfills
 // ============================================================================
 
-(globalThis as any).HTMLCanvasElement = Canvas;
-(globalThis as any).CanvasRenderingContext2D = CanvasRenderingContext2D;
+// Create a dummy canvas to get the class constructors
+const _dummyCanvas = createCanvas(1, 1);
+const _dummyCtx = _dummyCanvas.getContext('2d');
+
+// Patch the context prototype
+patchContextPrototype(_dummyCtx);
+
+// Get the Canvas class from the prototype chain
+const CanvasClass = _dummyCanvas.constructor;
+const CanvasRenderingContext2DClass = _dummyCtx.constructor;
+
+(globalThis as any).HTMLCanvasElement = CanvasClass;
+(globalThis as any).CanvasRenderingContext2D = CanvasRenderingContext2DClass;
 (globalThis as any).Image = Image;
 
-// Path2D polyfill (minimal implementation)
-if (!(globalThis as any).Path2D) {
-  (globalThis as any).Path2D = class Path2D {
-    private commands: string[] = [];
+// Use @napi-rs/canvas's Path2D
+(globalThis as any).Path2D = Path2D;
 
-    constructor(path?: Path2D | string) {
-      if (typeof path === 'string') {
-        this.commands.push(path);
-      }
-    }
-
-    addPath(path: Path2D) {
-      // Minimal implementation
-    }
-
-    closePath() {
-      this.commands.push('Z');
-    }
-
-    moveTo(x: number, y: number) {
-      this.commands.push(`M ${x} ${y}`);
-    }
-
-    lineTo(x: number, y: number) {
-      this.commands.push(`L ${x} ${y}`);
-    }
-
-    bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number) {
-      this.commands.push(`C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${x} ${y}`);
-    }
-
-    quadraticCurveTo(cpx: number, cpy: number, x: number, y: number) {
-      this.commands.push(`Q ${cpx} ${cpy} ${x} ${y}`);
-    }
-
-    arc(x: number, y: number, radius: number, startAngle: number, endAngle: number, counterclockwise?: boolean) {
-      // Simplified arc implementation
-      this.commands.push(`arc ${x} ${y} ${radius}`);
-    }
-
-    arcTo(x1: number, y1: number, x2: number, y2: number, radius: number) {
-      this.commands.push(`arcTo ${x1} ${y1} ${x2} ${y2} ${radius}`);
-    }
-
-    ellipse(x: number, y: number, radiusX: number, radiusY: number, rotation: number, startAngle: number, endAngle: number, counterclockwise?: boolean) {
-      this.commands.push(`ellipse ${x} ${y} ${radiusX} ${radiusY}`);
-    }
-
-    rect(x: number, y: number, width: number, height: number) {
-      this.commands.push(`M ${x} ${y} h ${width} v ${height} h ${-width} Z`);
-    }
-
-    roundRect(x: number, y: number, width: number, height: number, radii?: number | number[]) {
-      // Simplified roundRect
-      this.rect(x, y, width, height);
-    }
-  };
-}
-
-// DOMMatrix polyfill
+// DOMMatrix polyfill - use DOMMatrix from @napi-rs/canvas
 if (!(globalThis as any).DOMMatrix) {
   (globalThis as any).DOMMatrix = DOMMatrix;
 }
@@ -364,7 +329,9 @@ const createCanvasElement = () => {
   const originalGetContext = canvas.getContext.bind(canvas);
   (canvas as any).getContext = function(type: string) {
     if (type === '2d') {
-      return originalGetContext('2d');
+      const ctx = originalGetContext('2d');
+      patchContextPrototype(ctx);
+      return ctx;
     }
     return null;
   };
@@ -408,10 +375,10 @@ if (!(globalThis as any).window) {
   (globalThis as any).window = globalThis;
 }
 
-// OffscreenCanvas polyfill using node-canvas
+// OffscreenCanvas polyfill using @napi-rs/canvas
 if (!(globalThis as any).OffscreenCanvas) {
   (globalThis as any).OffscreenCanvas = class OffscreenCanvas {
-    private canvas: Canvas;
+    private canvas: any;
     width: number;
     height: number;
 
@@ -536,10 +503,10 @@ if (!(globalThis as any).FileSystemFileHandle) {
     }
 
     async createWritable() {
-      const chunks: Uint8Array[] = [];
+      const chunks: BlobPart[] = [];
       return {
         write: async (data: Uint8Array) => {
-          chunks.push(data);
+          chunks.push(data as BlobPart);
         },
         close: async () => {
           return new Blob(chunks);

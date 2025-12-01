@@ -27,6 +27,12 @@ By following this approach, the project will provide a modern, efficient, and ma
 - [libav.js](https://github.com/Yahweasel/libav.js)
 - [napigen](https://github.com/cztomsik/napigen)
 
+## canvas
+
+for canvas we use the library https://github.com/Brooooooklyn/canvas
+
+read the repo https://github.com/Brooooooklyn/canvas/blob/main/README.md to see how to use it
+
 ## audio
 
 audio is also impemented with some web audio api APIs
