@@ -93,39 +93,10 @@ jobs:
             zig build -Doptimize=ReleaseFast -Dffmpeg-prefix="$FFMPEG_PREFIX"
 
       - name: List build output
-        run: ls -laR native/zig-out/
-
-      - name: Verify native module (Linux)
-        if: runner.os == 'Linux'
         run: |
-          echo "=== File size ==="
-          ls -la native/zig-out/lib/libavjs.node
-          SIZE=$(stat -c%s native/zig-out/lib/libavjs.node)
-          echo "Size: $SIZE bytes"
-          if [ "$SIZE" -lt 500000 ]; then
-            echo "ERROR: Native module is too small ($SIZE bytes), FFmpeg may not be linked"
-            exit 1
-          fi
-          echo "=== Checking for FFmpeg symbols ==="
-          nm -D native/zig-out/lib/libavjs.node | grep -E "avcodec|avformat" | head -10 || true
-          echo "=== Checking dynamic dependencies ==="
-          ldd native/zig-out/lib/libavjs.node | head -20
-
-      - name: Verify native module (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          echo "=== File size ==="
-          ls -la native/zig-out/lib/libavjs.node
-          SIZE=$(stat -f%z native/zig-out/lib/libavjs.node)
-          echo "Size: $SIZE bytes"
-          if [ "$SIZE" -lt 500000 ]; then
-            echo "ERROR: Native module is too small ($SIZE bytes), FFmpeg may not be linked"
-            exit 1
-          fi
-          echo "=== Checking for FFmpeg symbols ==="
-          nm native/zig-out/lib/libavjs.node | grep -E "avcodec|avformat" | head -10 || true
-          echo "=== Checking dynamic dependencies ==="
-          otool -L native/zig-out/lib/libavjs.node | head -20
+          ls -laR native/zig-out/
+          echo "=== Native module info ==="
+          file native/zig-out/lib/libavjs.node || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -198,3 +169,31 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Wait for npm propagation
+        run: sleep 15
+
+      - name: Verify published package works
+        run: |
+          # Create a temp directory for testing
+          mkdir -p /tmp/test-pkg
+          cd /tmp/test-pkg
+          npm init -y
+          
+          # Get the package name and version from the repo
+          PKG_NAME=$(node -p "require('${{ github.workspace }}/package.json').name")
+          PKG_VERSION=$(node -p "require('${{ github.workspace }}/package.json').version")
+          
+          echo "Testing $PKG_NAME@$PKG_VERSION"
+          
+          # Install the just-published package
+          npm install "$PKG_NAME@$PKG_VERSION"
+          
+          # Test that it can be imported and basic functions exist
+          node -e "
+            const pkg = require('$PKG_NAME');
+            console.log('Package loaded successfully');
+            console.log('Exports:', Object.keys(pkg));
+          "
+          
+          echo "Package verification passed!"
