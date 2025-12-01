@@ -10,6 +10,25 @@ import {
   AudioBuffer as NodeAudioBuffer,
 } from 'node-web-audio-api';
 
+/**
+ * IMPORTANT: node-web-audio-api OfflineAudioContext Limitation
+ * 
+ * Unlike browsers, node-web-audio-api does NOT support scheduling audio nodes
+ * after startRendering() has been called. Audio scheduled after startRendering()
+ * will produce silence.
+ * 
+ * This is by design - the Rust backend only processes control messages at:
+ * - Before rendering starts
+ * - During suspend() callbacks
+ * - After event handlers
+ * 
+ * Solutions:
+ * 1. Schedule ALL audio BEFORE calling startRendering()
+ * 2. Use suspend(time) callbacks to schedule audio at specific points
+ * 
+ * See: docs/node-web-audio-api-offline-rendering-issue.md
+ */
+
 // Canvas polyfill
 (globalThis as any).HTMLCanvasElement = Canvas;
 (globalThis as any).CanvasRenderingContext2D = CanvasRenderingContext2D;
