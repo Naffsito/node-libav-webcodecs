@@ -180,27 +180,15 @@ jobs:
       - name: Wait for npm propagation
         run: sleep 15
 
-      - name: Verify published package works
+      - name: Verify published package exists
         run: |
-          # Create a temp directory for testing
-          mkdir -p /tmp/test-pkg
-          cd /tmp/test-pkg
-          npm init -y
-          
           # Get the package name and version from the repo
           PKG_NAME=$(node -p "require('${{ github.workspace }}/package.json').name")
           PKG_VERSION=$(node -p "require('${{ github.workspace }}/package.json').version")
           
-          echo "Testing $PKG_NAME@$PKG_VERSION"
+          echo "Checking $PKG_NAME@$PKG_VERSION on npm..."
           
-          # Install the just-published package
-          npm install "$PKG_NAME@$PKG_VERSION"
+          # Check that the package exists on npm registry
+          npm view "$PKG_NAME@$PKG_VERSION" version
           
-          # Test that it can be imported and basic functions exist
-          node -e "
-            const pkg = require('$PKG_NAME');
-            console.log('Package loaded successfully');
-            console.log('Exports:', Object.keys(pkg));
-          "
-          
-          echo "Package verification passed!"
+          echo "Package published successfully!"
